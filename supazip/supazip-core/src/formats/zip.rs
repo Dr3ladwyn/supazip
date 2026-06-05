@@ -480,4 +480,149 @@ mod tests {
             .expect("test");
         assert!(ok);
     }
+
+    #[test]
+    fn round_trip_via_real_file_per_entry_assertions() {
+        // Stronger assertions on the listed entries: name, size, crc32.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let archive = tmp.path().join("round.zip");
+        let src_dir = tmp.path().join("src");
+        std::fs::create_dir(&src_dir).expect("mkdir src");
+        let hello_body = b"hi\n";
+        let data_body: &[u8] = &[0xCA, 0xFE, 0xBA, 0xBE];
+        std::fs::write(src_dir.join("hello.txt"), hello_body).expect("write hello");
+        std::fs::write(src_dir.join("data.bin"), data_body).expect("write data");
+
+        // The zip backend uses the entry path's display form as the archive
+        // name, so we feed it absolute paths and look the entries up by the
+        // file_name component for assertion convenience.
+        let entries = vec![src_dir.join("hello.txt"), src_dir.join("data.bin")];
+        let opts = CreateOptions {
+            compression_method: "deflate".to_string(),
+            compression_level: None,
+        };
+        let file = std::fs::File::create(&archive).expect("create archive");
+        let writer: Box<dyn WriteSeek> = Box::new(BufWriter::new(file));
+        ZipBackend::new()
+            .create(writer, &entries, &opts, None, &NoOpProgress)
+            .expect("create");
+
+        let listed = ZipBackend::new()
+            .list(
+                Box::new(std::fs::File::open(&archive).expect("reopen")),
+                None,
+            )
+            .expect("list");
+        assert_eq!(listed.len(), 2);
+
+        for entry in &listed {
+            assert!(!entry.is_dir, "files only: {entry:?}");
+            assert!(entry.crc32.is_some(), "zip stores CRC32: {entry:?}");
+        }
+        // The zip backend stores entries by their display form (e.g. the
+        // absolute path on Windows). Build a lookup keyed on the file_name
+        // component so this test is independent of the tempdir location.
+        let by_basename: std::collections::HashMap<&str, &crate::traits::ArchiveEntry> = listed
+            .iter()
+            .filter_map(|e| {
+                let base = std::path::Path::new(&e.name)
+                    .file_name()
+                    .and_then(|s| s.to_str())?;
+                Some((base, e))
+            })
+            .collect();
+
+        let hello = by_basename.get("hello.txt").expect("hello.txt entry");
+        assert_eq!(hello.size as usize, hello_body.len());
+        assert_eq!(
+            hello.compression_method, "deflate",
+            "default compression method"
+        );
+
+        let data = by_basename.get("data.bin").expect("data.bin entry");
+        assert_eq!(data.size as usize, data_body.len());
+    }
+
+    #[test]
+    fn list_compressed_and_uncompressed_archives() {
+        // The same logical archive stored with two compression methods must
+        // both list the same number of entries with matching basenames and
+        // matching method names.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let src_dir = tmp.path().join("src");
+        std::fs::create_dir(&src_dir).expect("mkdir src");
+        std::fs::write(src_dir.join("a.txt"), b"alpha\n").expect("write a");
+        std::fs::write(src_dir.join("b.txt"), b"bravo\n").expect("write b");
+
+        let methods = ["deflate", "store"];
+
+        let mut seen_basenames: std::collections::HashSet<String> = Default::default();
+        for method in methods {
+            let archive = tmp.path().join(format!("arch-{method}.zip"));
+            let entries = vec![src_dir.join("a.txt"), src_dir.join("b.txt")];
+            let opts = CreateOptions {
+                compression_method: method.to_string(),
+                compression_level: None,
+            };
+            let file = std::fs::File::create(&archive).expect("create");
+            let writer: Box<dyn WriteSeek> = Box::new(BufWriter::new(file));
+            ZipBackend::new()
+                .create(writer, &entries, &opts, None, &NoOpProgress)
+                .expect("create");
+
+            let listed = ZipBackend::new()
+                .list(
+                    Box::new(std::fs::File::open(&archive).expect("reopen")),
+                    None,
+                )
+                .expect("list");
+            assert_eq!(listed.len(), 2, "{method} should have 2 entries");
+            for e in &listed {
+                assert_eq!(
+                    e.compression_method, method,
+                    "{method} archive should report method {method}"
+                );
+                let base = std::path::Path::new(&e.name)
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("")
+                    .to_string();
+                seen_basenames.insert(base);
+            }
+        }
+        let mut got: Vec<String> = seen_basenames.into_iter().collect();
+        got.sort();
+        assert_eq!(got, vec!["a.txt", "b.txt"]);
+    }
+
+    #[test]
+    fn list_directory_entry_is_marked_as_dir() {
+        // A directory entry inside a zip should come back with `is_dir == true`.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let archive = tmp.path().join("dirs.zip");
+        let dir = tmp.path().join("empty");
+        std::fs::create_dir(&dir).expect("mkdir empty");
+        let file = std::fs::File::create(&archive).expect("create");
+        let writer: Box<dyn WriteSeek> = Box::new(BufWriter::new(file));
+        let entries = vec![dir];
+        let opts = CreateOptions {
+            compression_method: "deflate".to_string(),
+            compression_level: None,
+        };
+        ZipBackend::new()
+            .create(writer, &entries, &opts, None, &NoOpProgress)
+            .expect("create");
+
+        let listed = ZipBackend::new()
+            .list(
+                Box::new(std::fs::File::open(&archive).expect("reopen")),
+                None,
+            )
+            .expect("list");
+        assert!(!listed.is_empty(), "directory entry should be listed");
+        assert!(
+            listed.iter().any(|e| e.is_dir),
+            "expected at least one is_dir entry; got {listed:?}"
+        );
+    }
 }

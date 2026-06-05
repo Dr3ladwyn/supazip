@@ -80,6 +80,10 @@ impl ProgressState {
     pub fn cancel(&self) {
         self.cancelled.store(true, Ordering::SeqCst);
     }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::SeqCst)
+    }
 }
 
 impl Default for ProgressState {
@@ -156,6 +160,22 @@ pub struct ArchiveEntry {
     pub encrypted: bool,
 }
 
+impl std::fmt::Debug for ArchiveEntry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ArchiveEntry")
+            .field("name", &self.name)
+            .field("path", &self.path)
+            .field("is_dir", &self.is_dir)
+            .field("size", &self.size)
+            .field("compressed_size", &self.compressed_size)
+            .field("modified", &self.modified)
+            .field("compression_method", &self.compression_method)
+            .field("crc32", &self.crc32)
+            .field("encrypted", &self.encrypted)
+            .finish()
+    }
+}
+
 pub struct CreateOptions {
     pub compression_method: String,
     pub compression_level: Option<u32>,
@@ -205,4 +225,75 @@ pub trait ArchiveFormat: Send + Sync {
         password: Option<&str>,
         progress: &dyn ProgressCallback,
     ) -> Result<bool, ArchiverError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn noop_progress_methods_are_total() {
+        let p = NoOpProgress;
+        p.set_progress(0, 0);
+        p.set_message("");
+        assert!(!p.is_cancelled());
+    }
+
+    #[test]
+    fn progress_state_round_trip() {
+        let s = ProgressState::new();
+        s.set_progress(42, 100);
+        s.set_message("hello");
+        assert!(!s.is_cancelled());
+        s.cancel();
+        assert!(s.is_cancelled());
+    }
+
+    #[test]
+    fn progress_state_default_matches_new() {
+        let s = ProgressState::default();
+        assert!(!s.is_cancelled());
+    }
+
+    #[test]
+    fn arc_progress_state_dispatches_to_inner() {
+        let s: Arc<ProgressState> = Arc::new(ProgressState::new());
+        let cb: &dyn ProgressCallback = &s;
+        cb.set_progress(7, 9);
+        cb.set_message("msg");
+        assert!(!cb.is_cancelled());
+        s.cancel();
+        assert!(cb.is_cancelled());
+    }
+
+    #[test]
+    fn channel_progress_emits_structured_updates() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let p = ChannelProgress::new(tx);
+        p.set_progress(1, 2);
+        p.set_message("entry");
+        let u1 = rx.recv().expect("recv 1");
+        let u2 = rx.recv().expect("recv 2");
+        assert_eq!(u1.current, 1);
+        assert_eq!(u1.total, 2);
+        assert_eq!(u2.message, "entry");
+    }
+
+    #[test]
+    fn channel_progress_is_not_cancellable() {
+        // `ChannelProgress::is_cancelled` is hard-coded `false`; the GUI drives
+        // cancellation through the `ProgressState` path. Document the behaviour
+        // here so a future refactor does not silently break the contract.
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let p = ChannelProgress::new(tx);
+        assert!(!p.is_cancelled());
+    }
+
+    #[test]
+    fn write_seek_blanket_covers_files() {
+        // Compile-time check: any `Write + Seek` type implements `WriteSeek`.
+        fn _accepts_write_seek<W: WriteSeek>(_: &mut W) {}
+        let mut c = std::io::Cursor::new(Vec::<u8>::new());
+        _accepts_write_seek(&mut c);
+    }
 }

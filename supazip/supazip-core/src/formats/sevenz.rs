@@ -564,4 +564,125 @@ mod tests {
                 .collect::<Vec<_>>()
         );
     }
+
+    #[test]
+    fn wrong_password_list_returns_wrong_password() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let archive = tmp.path().join("enc.7z");
+        let src = tmp.path().join("src");
+        let entries = write_two_files(&src);
+
+        let file = std::fs::File::create(&archive).expect("create archive");
+        let writer: Box<dyn WriteSeek> = Box::new(file);
+        let opts = CreateOptions {
+            compression_method: "deflate".to_string(),
+            compression_level: None,
+        };
+        SevenZBackend::new()
+            .create(
+                writer,
+                &entries,
+                &opts,
+                Some("correct-horse"),
+                &NoOpProgress,
+            )
+            .expect("create");
+
+        // Wrong password should surface as `WrongPassword` (or `PasswordRequired`
+        // if the upstream library's first-line check fires before content decode).
+        let err = SevenZBackend::new()
+            .list(
+                Box::new(std::fs::File::open(&archive).expect("open")),
+                Some("battery-staple"),
+            )
+            .expect_err("wrong password should fail");
+        assert!(
+            matches!(
+                err,
+                ArchiverError::WrongPassword | ArchiverError::PasswordRequired
+            ),
+            "expected WrongPassword or PasswordRequired, got {err:?}",
+        );
+    }
+
+    #[test]
+    fn unencrypted_extract_round_trip_7z() {
+        // The sevenz backend's `extract` currently streams entries to a sink
+        // (it does not write to disk yet — that lands in step 6 / step 10),
+        // so we only assert on the listing / test path here.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let archive = tmp.path().join("plain.7z");
+        let src = tmp.path().join("src");
+        let entries = write_two_files(&src);
+
+        let file = std::fs::File::create(&archive).expect("create archive");
+        let writer: Box<dyn WriteSeek> = Box::new(file);
+        let opts = CreateOptions {
+            compression_method: "deflate".to_string(),
+            compression_level: None,
+        };
+        SevenZBackend::new()
+            .create(writer, &entries, &opts, None, &NoOpProgress)
+            .expect("create");
+
+        let ok = SevenZBackend::new()
+            .test(
+                Box::new(std::fs::File::open(&archive).expect("open")),
+                None,
+                &NoOpProgress,
+            )
+            .expect("test");
+        assert!(ok);
+    }
+
+    #[test]
+    fn test_7z_corrupted_archive_returns_error() {
+        // Random non-7z bytes should not parse as a 7z archive.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let archive = tmp.path().join("corrupt.7z");
+        std::fs::write(&archive, b"this is not a 7z archive at all\n").expect("write");
+
+        let res = SevenZBackend::new().test(
+            Box::new(std::fs::File::open(&archive).expect("open")),
+            None,
+            &NoOpProgress,
+        );
+        assert!(res.is_err(), "corrupt archive should error, got {res:?}");
+    }
+
+    #[test]
+    fn list_7z_with_directory_entry() {
+        // The sevenz backend lists directory entries when present; assert
+        // `is_dir` is true for at least one entry in a directory-bearing
+        // archive.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let archive = tmp.path().join("dirs.7z");
+        let sub = tmp.path().join("sub");
+        std::fs::create_dir(&sub).expect("mkdir sub");
+        std::fs::write(sub.join("file.txt"), b"in sub\n").expect("write file");
+        let file = std::fs::File::create(&archive).expect("create archive");
+        let writer: Box<dyn WriteSeek> = Box::new(file);
+        let opts = CreateOptions {
+            compression_method: "deflate".to_string(),
+            compression_level: None,
+        };
+        SevenZBackend::new()
+            .create(
+                writer,
+                std::slice::from_ref(&sub),
+                &opts,
+                None,
+                &NoOpProgress,
+            )
+            .expect("create");
+
+        let listed = SevenZBackend::new()
+            .list(Box::new(std::fs::File::open(&archive).expect("open")), None)
+            .expect("list");
+        assert!(!listed.is_empty());
+        assert!(
+            listed.iter().any(|e| e.is_dir),
+            "expected at least one directory entry, got {listed:?}"
+        );
+    }
 }

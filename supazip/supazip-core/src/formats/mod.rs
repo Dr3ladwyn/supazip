@@ -54,3 +54,55 @@ pub fn get_backend(extension: &str) -> Option<&'static dyn ArchiveFormat> {
 pub fn supported_extensions() -> Vec<&'static str> {
     BACKENDS.keys().copied().collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn backends_contains_zip_and_sevenz() {
+        let exts: Vec<&str> = supported_extensions();
+        assert!(exts.contains(&"zip"), "zip backend missing: {exts:?}");
+        assert!(exts.contains(&"7z"), "7z backend missing: {exts:?}");
+    }
+
+    #[test]
+    fn get_backend_is_case_insensitive() {
+        assert!(get_backend("ZIP").is_some());
+        assert!(get_backend("Zip").is_some());
+        assert!(get_backend("7z").is_some());
+        assert!(get_backend("7Z").is_some());
+    }
+
+    #[test]
+    fn get_backend_unknown_returns_none() {
+        assert!(get_backend("rar").is_none());
+        assert!(get_backend("").is_none());
+    }
+
+    #[test]
+    fn detect_format_picks_by_extension() {
+        let mut empty: &[u8] = &[];
+        let z = detect_format(&mut empty, Some("foo.zip")).expect("zip backend");
+        assert_eq!(z.name(), "zip");
+        let s = detect_format(&mut empty, Some("foo.7z")).expect("7z backend");
+        assert_eq!(s.name(), "7z");
+    }
+
+    #[test]
+    fn detect_format_unknown_extension_returns_none() {
+        let mut empty: &[u8] = &[];
+        assert!(detect_format(&mut empty, Some("foo.rar")).is_none());
+    }
+
+    #[test]
+    fn detect_format_no_extension_returns_none() {
+        let mut empty: &[u8] = &[];
+        assert!(detect_format(&mut empty, Some("plain_file")).is_none());
+    }
+
+    #[test]
+    fn supported_extensions_is_non_empty() {
+        assert!(!supported_extensions().is_empty());
+    }
+}
