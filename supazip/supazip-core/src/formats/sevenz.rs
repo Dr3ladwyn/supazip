@@ -31,15 +31,19 @@ impl SevenZBackend {
     /// can read the public `archive.folders[].coders[].decompression_method_id()`
     /// and compare to `SevenZMethod::AES256SHA256.id()`. The flag is reported
     /// at the archive level and propagated to every entry.
-    fn archive_is_encrypted<R: Read + Seek>(reader: R, password: Password) -> Result<bool, ArchiverError> {
-        let seven = SevenZReader::new(reader, u64::MAX, password)
-            .map_err(Self::map_sevenz_error)?;
+    fn archive_is_encrypted<R: Read + Seek>(
+        reader: R,
+        password: Password,
+    ) -> Result<bool, ArchiverError> {
+        let seven =
+            SevenZReader::new(reader, u64::MAX, password).map_err(Self::map_sevenz_error)?;
         let aes_id = SevenZMethod::AES256SHA256.id();
-        let encrypted = seven
-            .archive()
-            .folders
-            .iter()
-            .any(|folder| folder.coders.iter().any(|c| c.decompression_method_id() == aes_id));
+        let encrypted = seven.archive().folders.iter().any(|folder| {
+            folder
+                .coders
+                .iter()
+                .any(|c| c.decompression_method_id() == aes_id)
+        });
         Ok(encrypted)
     }
 
@@ -116,8 +120,8 @@ impl SevenZBackend {
         R: Read + Seek,
         F: FnMut(&SevenZArchiveEntry, &mut dyn Read) -> Result<bool, SevenZError>,
     {
-        let mut seven = SevenZReader::new(reader, u64::MAX, password)
-            .map_err(Self::map_sevenz_error)?;
+        let mut seven =
+            SevenZReader::new(reader, u64::MAX, password).map_err(Self::map_sevenz_error)?;
 
         seven
             .for_each_entries(|entry, entry_reader| {
@@ -149,7 +153,9 @@ struct SharedBuffer {
 
 impl SharedBuffer {
     fn new(data: Vec<u8>) -> Self {
-        Self { cursor: Cursor::new(data) }
+        Self {
+            cursor: Cursor::new(data),
+        }
     }
 
     /// Reset the cursor to position 0 and return a `&mut` borrow. The caller
@@ -170,7 +176,11 @@ impl ArchiveFormat for SevenZBackend {
         &["7z"]
     }
 
-    fn list(&self, mut reader: Box<dyn Read>, password: Option<&str>) -> Result<Vec<ArchiveEntry>, ArchiverError> {
+    fn list(
+        &self,
+        mut reader: Box<dyn Read>,
+        password: Option<&str>,
+    ) -> Result<Vec<ArchiveEntry>, ArchiverError> {
         tracing::debug!("Listing 7z archive");
 
         let pwd = Self::get_password(password);
@@ -231,14 +241,24 @@ impl ArchiveFormat for SevenZBackend {
         // First pass: calculate total uncompressed size
         let total_size: u64 = {
             let filter_slice: &[String] = entries_filter.as_deref().unwrap_or(&[]);
-            let filter_opt: Option<&[String]> = if entries_filter.is_some() { Some(filter_slice) } else { None };
+            let filter_opt: Option<&[String]> = if entries_filter.is_some() {
+                Some(filter_slice)
+            } else {
+                None
+            };
             let mut total: u64 = 0;
-            Self::for_each_entry(buffer.reset(), pwd.clone(), filter_opt, progress, |entry, _reader| {
-                if !entry.is_directory() {
-                    total += entry.size();
-                }
-                Ok(true)
-            })?;
+            Self::for_each_entry(
+                buffer.reset(),
+                pwd.clone(),
+                filter_opt,
+                progress,
+                |entry, _reader| {
+                    if !entry.is_directory() {
+                        total += entry.size();
+                    }
+                    Ok(true)
+                },
+            )?;
             total
         };
 
@@ -254,38 +274,44 @@ impl ArchiveFormat for SevenZBackend {
         let mut extracted_size: u64 = 0;
         let filter_ref: Option<&[String]> = entries_filter.as_deref();
 
-        Self::for_each_entry(buffer.reset(), pwd, filter_ref, progress, |entry, entry_reader| {
-            if progress.is_cancelled() {
-                return Err(SevenZError::Other("Operation cancelled".into()));
-            }
-
-            progress.set_message(entry.name());
-
-            if entry.is_directory() {
-                return Ok(true);
-            }
-
-            let mut buf = [0u8; 8192];
-
-            loop {
+        Self::for_each_entry(
+            buffer.reset(),
+            pwd,
+            filter_ref,
+            progress,
+            |entry, entry_reader| {
                 if progress.is_cancelled() {
                     return Err(SevenZError::Other("Operation cancelled".into()));
                 }
 
-                let bytes_read = entry_reader
-                    .read(&mut buf)
-                    .map_err(|e| SevenZError::Io(e, "".into()))?;
+                progress.set_message(entry.name());
 
-                if bytes_read == 0 {
-                    break;
+                if entry.is_directory() {
+                    return Ok(true);
                 }
 
-                extracted_size += bytes_read as u64;
-                progress.set_progress(extracted_size, total_size);
-            }
+                let mut buf = [0u8; 8192];
 
-            Ok(true)
-        })?;
+                loop {
+                    if progress.is_cancelled() {
+                        return Err(SevenZError::Other("Operation cancelled".into()));
+                    }
+
+                    let bytes_read = entry_reader
+                        .read(&mut buf)
+                        .map_err(|e| SevenZError::Io(e, "".into()))?;
+
+                    if bytes_read == 0 {
+                        break;
+                    }
+
+                    extracted_size += bytes_read as u64;
+                    progress.set_progress(extracted_size, total_size);
+                }
+
+                Ok(true)
+            },
+        )?;
 
         tracing::debug!("Extracted {} bytes from 7z archive", extracted_size);
         Ok(())
@@ -341,12 +367,14 @@ impl ArchiveFormat for SevenZBackend {
 
             if entry.is_directory() {
                 sz.push_archive_entry(entry, Option::<&mut std::fs::File>::None)
-                    .map_err(|e| ArchiverError::InvalidArchive(format!("Failed to add directory: {:?}", e)))?;
+                    .map_err(|e| {
+                        ArchiverError::InvalidArchive(format!("Failed to add directory: {:?}", e))
+                    })?;
             } else {
-                let mut file = std::fs::File::open(path)
-                    .map_err(ArchiverError::Io)?;
-                sz.push_archive_entry(entry, Some(&mut file))
-                    .map_err(|e| ArchiverError::InvalidArchive(format!("Failed to add file: {:?}", e)))?;
+                let mut file = std::fs::File::open(path).map_err(ArchiverError::Io)?;
+                sz.push_archive_entry(entry, Some(&mut file)).map_err(|e| {
+                    ArchiverError::InvalidArchive(format!("Failed to add file: {:?}", e))
+                })?;
             }
         }
 
@@ -473,10 +501,17 @@ mod tests {
             .list(Box::new(std::fs::File::open(&archive).expect("open")), None)
             .expect("list");
         assert_eq!(listed.len(), 2);
-        assert!(listed.iter().all(|e| !e.encrypted), "plain archive should not be encrypted");
+        assert!(
+            listed.iter().all(|e| !e.encrypted),
+            "plain archive should not be encrypted"
+        );
 
         let ok = SevenZBackend::new()
-            .test(Box::new(std::fs::File::open(&archive).expect("open")), None, &NoOpProgress)
+            .test(
+                Box::new(std::fs::File::open(&archive).expect("open")),
+                None,
+                &NoOpProgress,
+            )
             .expect("test");
         assert!(ok);
     }
@@ -495,13 +530,22 @@ mod tests {
             compression_level: None,
         };
         SevenZBackend::new()
-            .create(writer, &entries, &opts, Some("correct-horse"), &NoOpProgress)
+            .create(
+                writer,
+                &entries,
+                &opts,
+                Some("correct-horse"),
+                &NoOpProgress,
+            )
             .expect("create");
 
         // Reading without a password should fail.
-        let no_pwd = SevenZBackend::new()
-            .list(Box::new(std::fs::File::open(&archive).expect("open")), None);
-        assert!(no_pwd.is_err(), "expected password error when listing encrypted 7z without pwd");
+        let no_pwd =
+            SevenZBackend::new().list(Box::new(std::fs::File::open(&archive).expect("open")), None);
+        assert!(
+            no_pwd.is_err(),
+            "expected password error when listing encrypted 7z without pwd"
+        );
 
         // Reading with the correct password should succeed and report encrypted.
         let listed = SevenZBackend::new()
@@ -514,7 +558,10 @@ mod tests {
         assert!(
             listed.iter().all(|e| e.encrypted),
             "encrypted archive should mark every entry encrypted; got {:?}",
-            listed.iter().map(|e| (&e.name, e.encrypted)).collect::<Vec<_>>()
+            listed
+                .iter()
+                .map(|e| (&e.name, e.encrypted))
+                .collect::<Vec<_>>()
         );
     }
 }

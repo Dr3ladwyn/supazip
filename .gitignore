@@ -36,3 +36,6 @@ rust-project.json
 # Nothing to add here — `PeaZip/` is a separate checkout, not a subdir of
 # this repo's tree. If a `PeaZip/.git` is ever moved into the tree, exclude
 # its metadata with `/PeaZip/.git/`.
+
+# Cursor local artifacts (agent scratchpads, hooks, etc.) — not source.
+.claude/

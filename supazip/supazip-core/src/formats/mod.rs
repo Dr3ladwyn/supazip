@@ -4,28 +4,32 @@ mod zip;
 pub use sevenz::SevenZBackend;
 pub use zip::ZipBackend;
 
-use std::sync::LazyLock;
-use std::collections::HashMap;
 use crate::traits::ArchiveFormat;
+use std::collections::HashMap;
+use std::sync::LazyLock;
 
 // Global registry of backends by extension
-pub static BACKENDS: LazyLock<HashMap<&'static str, &'static dyn ArchiveFormat>> = LazyLock::new(|| {
-    let mut map = HashMap::new();
-    let sevenz: &'static SevenZBackend = Box::leak(Box::new(SevenZBackend::new()));
-    let zip: &'static ZipBackend = Box::leak(Box::new(ZipBackend::new()));
+pub static BACKENDS: LazyLock<HashMap<&'static str, &'static dyn ArchiveFormat>> =
+    LazyLock::new(|| {
+        let mut map = HashMap::new();
+        let sevenz: &'static SevenZBackend = Box::leak(Box::new(SevenZBackend::new()));
+        let zip: &'static ZipBackend = Box::leak(Box::new(ZipBackend::new()));
 
-    for ext in sevenz.extensions() {
-        map.insert(*ext, sevenz as &dyn ArchiveFormat);
-    }
-    for ext in zip.extensions() {
-        map.insert(*ext, zip as &dyn ArchiveFormat);
-    }
+        for ext in sevenz.extensions() {
+            map.insert(*ext, sevenz as &dyn ArchiveFormat);
+        }
+        for ext in zip.extensions() {
+            map.insert(*ext, zip as &dyn ArchiveFormat);
+        }
 
-    map
-});
+        map
+    });
 
 /// Detect archive format from filename or magic bytes
-pub fn detect_format<R: std::io::Read>(_reader: &mut R, filename: Option<&str>) -> Option<&'static dyn ArchiveFormat> {
+pub fn detect_format<R: std::io::Read>(
+    _reader: &mut R,
+    filename: Option<&str>,
+) -> Option<&'static dyn ArchiveFormat> {
     // Check extension first
     if let Some(name) = filename {
         if let Some(ext) = name.rsplit('.').next() {

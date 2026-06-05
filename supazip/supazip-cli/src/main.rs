@@ -156,7 +156,10 @@ fn format_to_ext(f: Format) -> &'static str {
 
 /// Resolve a backend either by explicit `--format` or by the file extension.
 /// Returns a clear error when the extension is unrecognised.
-fn resolve_backend(archive: &Path, explicit_format: Option<&str>) -> Result<&'static dyn ArchiveFormat, ArchiverError> {
+fn resolve_backend(
+    archive: &Path,
+    explicit_format: Option<&str>,
+) -> Result<&'static dyn ArchiveFormat, ArchiverError> {
     if let Some(ext) = explicit_format {
         if let Some(backend) = formats::get_backend(ext) {
             return Ok(backend);
@@ -181,24 +184,26 @@ fn resolve_backend(archive: &Path, explicit_format: Option<&str>) -> Result<&'st
 // Per-command implementations
 // -----------------------------------------------------------------------------
 
-fn cmd_list(backend: &dyn ArchiveFormat, archive: &Path, password: Option<&str>) -> Result<(), ArchiverError> {
+fn cmd_list(
+    backend: &dyn ArchiveFormat,
+    archive: &Path,
+    password: Option<&str>,
+) -> Result<(), ArchiverError> {
     tracing::info!(archive = %archive.display(), backend = backend.name(), "list");
     let file = File::open(archive)?;
     let entries = backend.list(Box::new(BufReader::new(file)), password)?;
 
     // Plain-text table: name, size, compressed, encrypted.
-    println!("{:>4}  {:<12}  {:>12}  {:>12}  {:<8}  NAME", "IDX", "METHOD", "SIZE", "COMPRESSED", "CRYPT");
+    println!(
+        "{:>4}  {:<12}  {:>12}  {:>12}  {:<8}  NAME",
+        "IDX", "METHOD", "SIZE", "COMPRESSED", "CRYPT"
+    );
     println!("{}", "-".repeat(72));
     for (i, e) in entries.iter().enumerate() {
         let crypt = if e.encrypted { "yes" } else { "-" };
         println!(
             "{:>4}  {:<12}  {:>12}  {:>12}  {:<8}  {}",
-            i,
-            e.compression_method,
-            e.size,
-            e.compressed_size,
-            crypt,
-            e.name,
+            i, e.compression_method, e.size, e.compressed_size, crypt, e.name,
         );
     }
     println!("\n{} entries", entries.len());
@@ -261,7 +266,11 @@ fn cmd_create(
     Ok(())
 }
 
-fn cmd_test(backend: &dyn ArchiveFormat, archive: &Path, password: Option<&str>) -> Result<(), ArchiverError> {
+fn cmd_test(
+    backend: &dyn ArchiveFormat,
+    archive: &Path,
+    password: Option<&str>,
+) -> Result<(), ArchiverError> {
     tracing::info!(archive = %archive.display(), backend = backend.name(), "test");
     let file = File::open(archive)?;
     let ok = backend.test(Box::new(BufReader::new(file)), password, &StderrProgress)?;
@@ -287,7 +296,9 @@ struct BufReader<R: Read> {
 }
 impl<R: Read> BufReader<R> {
     fn new(r: R) -> Self {
-        Self { inner: std::io::BufReader::with_capacity(64 * 1024, r) }
+        Self {
+            inner: std::io::BufReader::with_capacity(64 * 1024, r),
+        }
     }
 }
 impl<R: Read> Read for BufReader<R> {
@@ -350,5 +361,9 @@ fn tracing_subscriber_init() -> Result<(), Box<dyn std::error::Error>> {
             ok = true;
         }
     });
-    if ok { Ok(()) } else { Err("tracing subscriber already set".into()) }
+    if ok {
+        Ok(())
+    } else {
+        Err("tracing subscriber already set".into())
+    }
 }

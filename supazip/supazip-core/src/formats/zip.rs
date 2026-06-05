@@ -1,8 +1,8 @@
+use chrono::{DateTime, Utc};
 use std::io::{Cursor, Read, Write};
 use std::path::PathBuf;
-use chrono::{DateTime, Utc};
-use zip::{ZipArchive, ZipWriter, DateTime as ZipDateTime, CompressionMethod};
 use zip::write::SimpleFileOptions;
+use zip::{CompressionMethod, DateTime as ZipDateTime, ZipArchive, ZipWriter};
 
 use crate::error::ArchiverError;
 use crate::traits::{ArchiveEntry, ArchiveFormat, CreateOptions, ProgressCallback, WriteSeek};
@@ -58,7 +58,11 @@ impl ArchiveFormat for ZipBackend {
         &["zip", "cbz"]
     }
 
-    fn list(&self, mut reader: Box<dyn Read>, password: Option<&str>) -> Result<Vec<ArchiveEntry>, ArchiverError> {
+    fn list(
+        &self,
+        mut reader: Box<dyn Read>,
+        password: Option<&str>,
+    ) -> Result<Vec<ArchiveEntry>, ArchiverError> {
         // zip 2.x requires `R: Read + Seek` for `ZipArchive::new` because the
         // central directory is read at the end. The trait hands us a non-seekable
         // `Box<dyn Read>`, so we buffer into memory and hand the resulting
@@ -90,8 +94,7 @@ impl ArchiveFormat for ZipBackend {
             let name = file.name().to_string();
             let is_dir = name.ends_with('/');
 
-            let modified = file.last_modified()
-                .and_then(Self::zip_datetime_to_chrono);
+            let modified = file.last_modified().and_then(Self::zip_datetime_to_chrono);
 
             let compression_method = Self::compression_method_to_string(file.compression());
 
@@ -184,20 +187,19 @@ impl ArchiveFormat for ZipBackend {
                     }
                 }
 
-                let mut outfile = std::fs::File::create(&outpath)
-                    .map_err(ArchiverError::Io)?;
+                let mut outfile = std::fs::File::create(&outpath).map_err(ArchiverError::Io)?;
 
                 let mut buffer = vec![0u8; 8192];
                 loop {
                     if progress.is_cancelled() {
                         return Err(ArchiverError::Cancelled);
                     }
-                    let bytes_read = file.read(&mut buffer)
-                        .map_err(ArchiverError::Io)?;
+                    let bytes_read = file.read(&mut buffer).map_err(ArchiverError::Io)?;
                     if bytes_read == 0 {
                         break;
                     }
-                    outfile.write_all(&buffer[..bytes_read])
+                    outfile
+                        .write_all(&buffer[..bytes_read])
                         .map_err(ArchiverError::Io)?;
                     processed += bytes_read as u64;
                     progress.set_progress(processed, 0); // Unknown total
@@ -237,20 +239,19 @@ impl ArchiveFormat for ZipBackend {
                     }
                 }
 
-                let mut outfile = std::fs::File::create(&outpath)
-                    .map_err(ArchiverError::Io)?;
+                let mut outfile = std::fs::File::create(&outpath).map_err(ArchiverError::Io)?;
 
                 let mut buffer = vec![0u8; 8192];
                 loop {
                     if progress.is_cancelled() {
                         return Err(ArchiverError::Cancelled);
                     }
-                    let bytes_read = file.read(&mut buffer)
-                        .map_err(ArchiverError::Io)?;
+                    let bytes_read = file.read(&mut buffer).map_err(ArchiverError::Io)?;
                     if bytes_read == 0 {
                         break;
                     }
-                    outfile.write_all(&buffer[..bytes_read])
+                    outfile
+                        .write_all(&buffer[..bytes_read])
                         .map_err(ArchiverError::Io)?;
                     processed += bytes_read as u64;
                     progress.set_progress(processed, 0);
@@ -300,34 +301,36 @@ impl ArchiveFormat for ZipBackend {
                 } else {
                     format!("{}/", name)
                 };
-                zip_writer.start_file(&dir_name, file_options)
+                zip_writer
+                    .start_file(&dir_name, file_options)
                     .map_err(|e| ArchiverError::Io(e.into()))?;
                 continue;
             }
 
-            zip_writer.start_file(&name, file_options)
+            zip_writer
+                .start_file(&name, file_options)
                 .map_err(|e| ArchiverError::Io(e.into()))?;
 
-            let mut file = std::fs::File::open(entry_path)
-                .map_err(ArchiverError::Io)?;
+            let mut file = std::fs::File::open(entry_path).map_err(ArchiverError::Io)?;
 
             let mut buffer = vec![0u8; 8192];
             loop {
                 if progress.is_cancelled() {
                     return Err(ArchiverError::Cancelled);
                 }
-                let bytes_read = file.read(&mut buffer)
-                    .map_err(ArchiverError::Io)?;
+                let bytes_read = file.read(&mut buffer).map_err(ArchiverError::Io)?;
                 if bytes_read == 0 {
                     break;
                 }
-                zip_writer.write_all(&buffer[..bytes_read])
+                zip_writer
+                    .write_all(&buffer[..bytes_read])
                     .map_err(ArchiverError::Io)?;
                 progress.set_progress(bytes_read as u64, 0);
             }
         }
 
-        zip_writer.finish()
+        zip_writer
+            .finish()
             .map_err(|e| ArchiverError::Io(e.into()))?;
 
         tracing::info!("Created zip archive with {} entries", entries.len());
@@ -373,8 +376,7 @@ impl ArchiveFormat for ZipBackend {
                 if progress.is_cancelled() {
                     return Err(ArchiverError::Cancelled);
                 }
-                let bytes_read = file.read(&mut buffer)
-                    .map_err(ArchiverError::Io)?;
+                let bytes_read = file.read(&mut buffer).map_err(ArchiverError::Io)?;
                 if bytes_read == 0 {
                     break;
                 }
@@ -448,7 +450,8 @@ mod tests {
         let src_dir = tmp.path().join("src");
         std::fs::create_dir(&src_dir).expect("mkdir src");
         std::fs::write(src_dir.join("hello.txt"), b"hi\n").expect("write hello");
-        std::fs::write(src_dir.join("data.bin"), &[0xCAu8, 0xFE, 0xBA, 0xBE][..]).expect("write data");
+        std::fs::write(src_dir.join("data.bin"), &[0xCAu8, 0xFE, 0xBA, 0xBE][..])
+            .expect("write data");
 
         let file = std::fs::File::create(&archive).expect("create archive");
         let writer: Box<dyn WriteSeek> = Box::new(BufWriter::new(file));
@@ -462,11 +465,18 @@ mod tests {
             .expect("create");
 
         let listed = ZipBackend::new()
-            .list(Box::new(std::fs::File::open(&archive).expect("reopen")), None)
+            .list(
+                Box::new(std::fs::File::open(&archive).expect("reopen")),
+                None,
+            )
             .expect("list");
         assert_eq!(listed.len(), 2);
         let ok = ZipBackend::new()
-            .test(Box::new(std::fs::File::open(&archive).expect("reopen")), None, &NoOpProgress)
+            .test(
+                Box::new(std::fs::File::open(&archive).expect("reopen")),
+                None,
+                &NoOpProgress,
+            )
             .expect("test");
         assert!(ok);
     }

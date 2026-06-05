@@ -2,6 +2,11 @@
 name = "supazip-core"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.92"
+description = "SupaZip archive engine: shared 7z / ZIP read and write logic for CLI and GUI front-ends."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/your-org/supazip"
+readme = "../../README.md"
 
 [dependencies]
 sevenz-rust = { version = "0.6", features = ["aes256"] }

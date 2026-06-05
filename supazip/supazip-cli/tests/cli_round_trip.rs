@@ -28,7 +28,11 @@ fn cli_bin() -> PathBuf {
     let mut p = exe.parent().expect("parent").to_path_buf();
     p.pop();
     p.push("debug");
-    let name = if cfg!(windows) { "supazip-cli.exe" } else { "supazip-cli" };
+    let name = if cfg!(windows) {
+        "supazip-cli.exe"
+    } else {
+        "supazip-cli"
+    };
     p.push(name);
     p
 }

@@ -1,7 +1,12 @@
 pub mod error;
-pub mod traits;
 pub mod formats;
+pub mod traits;
 
 pub use error::ArchiverError;
-pub use traits::{ArchiveEntry, ArchiveFormat, CreateOptions, ProgressCallback, NoOpProgress, ProgressState, ChannelProgress, ProgressUpdate, WriteSeek};
-pub use formats::{SevenZBackend, ZipBackend, BACKENDS, detect_format, get_backend, supported_extensions};
+pub use formats::{
+    detect_format, get_backend, supported_extensions, SevenZBackend, ZipBackend, BACKENDS,
+};
+pub use traits::{
+    ArchiveEntry, ArchiveFormat, ChannelProgress, CreateOptions, NoOpProgress, ProgressCallback,
+    ProgressState, ProgressUpdate, WriteSeek,
+};

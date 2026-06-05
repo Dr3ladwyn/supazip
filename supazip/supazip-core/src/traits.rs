@@ -1,8 +1,11 @@
-use std::io::{Read, Write, Seek};
-use std::sync::{Arc, atomic::{AtomicBool, AtomicU64, Ordering}};
-use std::sync::mpsc::Sender;
-use chrono::{DateTime, Utc};
 use crate::error::ArchiverError;
+use chrono::{DateTime, Utc};
+use std::io::{Read, Seek, Write};
+use std::sync::mpsc::Sender;
+use std::sync::{
+    atomic::{AtomicBool, AtomicU64, Ordering},
+    Arc,
+};
 
 // design note:
 // The `ArchiveFormat` trait takes `Box<dyn Read>` and `Box<dyn WriteSeek>` for
@@ -37,7 +40,9 @@ pub struct NoOpProgress;
 impl ProgressCallback for NoOpProgress {
     fn set_progress(&self, _current: u64, _total: u64) {}
     fn set_message(&self, _message: &str) {}
-    fn is_cancelled(&self) -> bool { false }
+    fn is_cancelled(&self) -> bool {
+        false
+    }
 }
 
 // =============================================================================
@@ -135,7 +140,7 @@ impl ProgressCallback for ChannelProgress {
     }
 
     fn is_cancelled(&self) -> bool {
-        false  // GUI handles cancellation differently
+        false // GUI handles cancellation differently
     }
 }
 
@@ -170,22 +175,34 @@ pub trait ArchiveFormat: Send + Sync {
     fn name(&self) -> &'static str;
     fn extensions(&self) -> &[&str];
 
-    fn list(&self, reader: Box<dyn Read>, password: Option<&str>)
-        -> Result<Vec<ArchiveEntry>, ArchiverError>;
+    fn list(
+        &self,
+        reader: Box<dyn Read>,
+        password: Option<&str>,
+    ) -> Result<Vec<ArchiveEntry>, ArchiverError>;
 
     fn extract(
-        &self, reader: Box<dyn Read>, dest: Box<dyn WriteSeek>, entries: &[&str],
-        password: Option<&str>, progress: &dyn ProgressCallback
+        &self,
+        reader: Box<dyn Read>,
+        dest: Box<dyn WriteSeek>,
+        entries: &[&str],
+        password: Option<&str>,
+        progress: &dyn ProgressCallback,
     ) -> Result<(), ArchiverError>;
 
     fn create(
-        &self, writer: Box<dyn WriteSeek>, entries: &[std::path::PathBuf],
-        options: &CreateOptions, password: Option<&str>,
-        progress: &dyn ProgressCallback
+        &self,
+        writer: Box<dyn WriteSeek>,
+        entries: &[std::path::PathBuf],
+        options: &CreateOptions,
+        password: Option<&str>,
+        progress: &dyn ProgressCallback,
     ) -> Result<(), ArchiverError>;
 
     fn test(
-        &self, reader: Box<dyn Read>, password: Option<&str>,
-        progress: &dyn ProgressCallback
+        &self,
+        reader: Box<dyn Read>,
+        password: Option<&str>,
+        progress: &dyn ProgressCallback,
     ) -> Result<bool, ArchiverError>;
 }
