@@ -16,4 +16,9 @@ log = "0.4"
 tracing = "0.1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-tokio = { version = "1", features = ["rt-multi-thread"] }
+tokio = { version = "1", features = ["rt-multi-thread", "signal"] }
+
+[dev-dependencies]
+tempfile = "3"
+zip = { version = "2", features = ["chrono"] }
+tokio = { version = "1", features = ["fs", "rt-multi-thread", "macros", "signal"] }

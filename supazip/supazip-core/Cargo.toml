@@ -11,9 +11,9 @@ readme = "../../README.md"
 [dependencies]
 sevenz-rust = { version = "0.6", features = ["aes256"] }
 zip = { version = "2", features = ["chrono"] }
-thiserror = "1"
+thiserror = "2"
 chrono = { version = "0.4", features = ["serde"] }
-tokio = { version = "1", features = ["fs", "io-util", "rt-multi-thread"] }
+tokio = { version = "1", features = ["fs", "io-util", "rt-multi-thread", "signal"] }
 log = "0.4"
 tracing = "0.1"
 
