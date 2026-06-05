@@ -1,0 +1,14 @@
+[package]
+name = "supazip-gui"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+supazip-core = { path = "../supazip-core" }
+eframe = "0.34"
+rfd = "0.17"
+log = "0.4"
+tracing = "0.1"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { version = "1", features = ["rt-multi-thread"] }

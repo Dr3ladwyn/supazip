@@ -1,0 +1,16 @@
+[package]
+name = "supazip-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+sevenz-rust = { version = "0.6", features = ["aes256"] }
+zip = { version = "2", features = ["chrono"] }
+thiserror = "1"
+chrono = { version = "0.4", features = ["serde"] }
+tokio = { version = "1", features = ["fs", "io-util", "rt-multi-thread"] }
+log = "0.4"
+tracing = "0.1"
+
+[dev-dependencies]
+tempfile = "3"

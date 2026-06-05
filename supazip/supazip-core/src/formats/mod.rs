@@ -1,0 +1,52 @@
+mod sevenz;
+mod zip;
+
+pub use sevenz::SevenZBackend;
+pub use zip::ZipBackend;
+
+use std::sync::LazyLock;
+use std::collections::HashMap;
+use crate::traits::ArchiveFormat;
+
+// Global registry of backends by extension
+pub static BACKENDS: LazyLock<HashMap<&'static str, &'static dyn ArchiveFormat>> = LazyLock::new(|| {
+    let mut map = HashMap::new();
+    let sevenz: &'static SevenZBackend = Box::leak(Box::new(SevenZBackend::new()));
+    let zip: &'static ZipBackend = Box::leak(Box::new(ZipBackend::new()));
+
+    for ext in sevenz.extensions() {
+        map.insert(*ext, sevenz as &dyn ArchiveFormat);
+    }
+    for ext in zip.extensions() {
+        map.insert(*ext, zip as &dyn ArchiveFormat);
+    }
+
+    map
+});
+
+/// Detect archive format from filename or magic bytes
+pub fn detect_format<R: std::io::Read>(_reader: &mut R, filename: Option<&str>) -> Option<&'static dyn ArchiveFormat> {
+    // Check extension first
+    if let Some(name) = filename {
+        if let Some(ext) = name.rsplit('.').next() {
+            if let Some(backend) = BACKENDS.get(ext.to_lowercase().as_str()) {
+                return Some(*backend);
+            }
+        }
+    }
+
+    // Magic-byte sniffing is not implemented yet; the reader argument is kept
+    // in the signature for the future implementation that will read the first
+    // few bytes to disambiguate archives without a recognised extension.
+    None
+}
+
+/// Get backend by extension
+pub fn get_backend(extension: &str) -> Option<&'static dyn ArchiveFormat> {
+    BACKENDS.get(extension.to_lowercase().as_str()).copied()
+}
+
+/// List all supported extensions
+pub fn supported_extensions() -> Vec<&'static str> {
+    BACKENDS.keys().copied().collect()
+}
