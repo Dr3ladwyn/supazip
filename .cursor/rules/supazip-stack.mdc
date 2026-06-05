@@ -1,0 +1,15 @@
+---
+description: SupaZip stack, paths, and workspace boundaries (always on)
+alwaysApply: true
+---
+
+# SupaZip project context
+
+- **Workspace**: Rust cargo workspace under `supazip/` — crates `supazip-core`, `supazip-gui`, `supazip-cli`.
+- **Core** (`supazip-core`): archive logic (7z, ZIP), shared errors and traits — **no** egui/eframe.
+- **GUI** (`supazip-gui`): eframe/egui + rfd; uses core via path dependency.
+- **CLI** (`supazip-cli`): command-line entry using core.
+- **Planning doc**: root `plan.md` describes intended architecture and APIs.
+- **Persistent context**: `memory-bank/*.md` when present; see `AGENTS.md` for roles.
+
+Prefer accurate, version-aware crate APIs: use Context7 MCP when documentation for egui, zip, sevenz-rust, or tokio is needed.

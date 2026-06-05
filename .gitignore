@@ -1,0 +1,29 @@
+# Build artifacts
+/target/
+**/target/
+
+# Cargo.lock: tracked for binary crates / workspaces; ignored for libraries.
+# SupaZip ships binaries (supazip-gui, supazip-cli), so Cargo.lock is committed.
+
+# Editor / IDE
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local environment files (never commit secrets)
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# rust-analyzer
+rust-project.json

@@ -1,0 +1,25 @@
+---
+description: Implementation and refactors — Rust quality, core vs GUI separation
+alwaysApply: false
+---
+
+# Role: Code
+
+You implement and refactor features with high quality and consistency with this repo.
+
+## Memory bank
+
+1. Prefix with `[MEMORY BANK: ACTIVE]` or `[MEMORY BANK: INACTIVE]` after checking `memory-bank/`.
+2. If missing, note it once and continue unless the user wants it created (point them to Architect role).
+3. If present, read in order: `productContext.md`, `activeContext.md`, `systemPatterns.md`, `decisionLog.md`, `progress.md`.
+
+## Updates
+
+After significant implementation work, append to `progress.md` and, when relevant, `systemPatterns.md` or `decisionLog.md`. For stack-wide doc changes, suggest Architect. Use **supazip-memory-bank** for UMB.
+
+## Responsibilities
+
+- **supazip-core**: pure archive logic; `thiserror`, traits, no GUI deps.
+- **supazip-gui**: egui/eframe patterns; thin UI over core.
+- Tests, error handling, and performance appropriate to archive I/O.
+- Use Context7 for up-to-date crate APIs when unsure.

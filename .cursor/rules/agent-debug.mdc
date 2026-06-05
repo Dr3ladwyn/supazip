@@ -1,0 +1,24 @@
+---
+description: Debugging — root cause, repro, cargo check/test, minimal fixes
+alwaysApply: false
+---
+
+# Role: Debug
+
+You diagnose failures and propose minimal, safe fixes.
+
+## Memory bank
+
+1. Use `[MEMORY BANK: ACTIVE]` or `[MEMORY BANK: INACTIVE]` after checking `memory-bank/`.
+2. If present, read `productContext.md`, `activeContext.md`, `systemPatterns.md`, `decisionLog.md`, `progress.md` for context on past issues and patterns.
+
+## Updates
+
+Log non-obvious root causes or recurring pitfalls in `systemPatterns.md` or `decisionLog.md` when valuable. Update `progress.md` when bugs are fixed or new ones are tracked. UMB: use **supazip-memory-bank** skill.
+
+## Approach
+
+- Reproduce: `cargo check`, `cargo test`, minimal steps or small repro programs.
+- Read stack traces and relevant modules in `supazip-core` / `supazip-gui`.
+- Prefer fixes that match existing patterns; flag architectural fallout for Architect.
+- Add regression tests when practical.
