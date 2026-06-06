@@ -4,6 +4,8 @@ use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use supazip_core::error::ArchiverError;
@@ -74,6 +76,11 @@ enum Command {
         /// Password for encrypted archives (only supported for 7z right now).
         #[arg(long)]
         password: Option<String>,
+
+        /// Compression method (`store`, `deflate`, `bzip2`, `zstd` for ZIP;
+        /// ignored by 7z, which uses LZMA2 / AES-256 depending on password).
+        #[arg(long, default_value = "deflate")]
+        compression: String,
     },
 
     /// Verify the integrity of an archive.
@@ -108,8 +115,18 @@ fn main() -> ExitCode {
     // We do this defensively: a subscriber may already be installed by tests.
     let _ = tracing_subscriber_init();
 
+    // Best-effort Ctrl-C handling: when the user hits Ctrl-C we want to
+    // surface `ArchiverError::Cancelled` from in-flight operations instead
+    // of letting the process die mid-write (which can leave a half-written
+    // archive on disk). The check here is a soft guard for short-running
+    // commands; long operations in the core honour `progress.is_cancelled`.
     let cli = Cli::parse();
-    match run(cli) {
+    let result = run(cli);
+    if let Err(ArchiverError::Cancelled) = &result {
+        eprintln!("interrupted");
+        return ExitCode::from(130);
+    }
+    match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
             eprintln!("error: {err}");
@@ -140,9 +157,17 @@ fn run(cli: Cli) -> Result<(), ArchiverError> {
             files,
             format,
             password,
+            compression,
         } => {
             let backend = resolve_backend(&archive, format.map(format_to_ext))?;
-            cmd_create(backend, &archive, &files, password.as_deref(), &limits)
+            cmd_create(
+                backend,
+                &archive,
+                &files,
+                password.as_deref(),
+                &compression,
+                &limits,
+            )
         }
         Command::Test { archive, password } => {
             let backend = resolve_backend(&archive, None)?;
@@ -274,7 +299,7 @@ fn cmd_extract(
         out,
         &entry_refs,
         password,
-        &StderrProgress,
+        &StderrProgress::new(),
         limits,
     )?;
     println!("extracted to {}", out.display());
@@ -286,6 +311,7 @@ fn cmd_create(
     archive: &Path,
     files: &[PathBuf],
     password: Option<&str>,
+    compression: &str,
     limits: &Limits,
 ) -> Result<(), ArchiverError> {
     tracing::info!(archive = %archive.display(), backend = backend.name(), entries = files.len(), "create");
@@ -311,7 +337,7 @@ fn cmd_create(
     {
         let writer: Box<dyn supazip_core::traits::WriteSeek> =
             Box::new(SharedVecSink::new(shared.clone()));
-        backend.create(writer, files, &options, password, &StderrProgress, limits)?;
+        backend.create(writer, files, &options, password, &StderrProgress::new(), limits)?;
     }
     let bytes = std::sync::Arc::try_unwrap(shared)
         .map_err(|_| {
@@ -338,7 +364,7 @@ fn cmd_test(
 ) -> Result<(), ArchiverError> {
     tracing::info!(archive = %archive.display(), backend = backend.name(), "test");
     let file = File::open(archive)?;
-    let ok = backend.test(Box::new(buf_reader(file)), password, &StderrProgress, limits)?;
+    let ok = backend.test(Box::new(buf_reader(file)), password, &StderrProgress::new(), limits)?;
     if ok {
         println!("OK: {}", archive.display());
         Ok(())
@@ -397,9 +423,23 @@ impl std::io::Seek for SharedVecSink {
     }
 }
 
-/// Progress sink that prints "name: current/total" on stderr at most a few
-/// times per second (rate-limited via a simple last-emit timestamp).
-struct StderrProgress;
+/// Progress sink that prints "name: current/total" on stderr and exposes a
+/// cancellation flag. CLI callers (the GUI uses `ChannelProgress`/`ProgressState`)
+/// do not flip the flag today, so the underlying atomic stays `false` and
+/// `is_cancelled` never returns `true`; a future revision can wire a
+/// `tokio::signal::ctrl_c` listener to the flag.
+struct StderrProgress {
+    cancelled: Arc<AtomicBool>,
+}
+
+impl StderrProgress {
+    fn new() -> Self {
+        Self {
+            cancelled: Arc::new(AtomicBool::new(false)),
+        }
+    }
+}
+
 impl ProgressCallback for StderrProgress {
     fn set_progress(&self, _current: u64, _total: u64) {
         // intentionally quiet — high-frequency updates would spam the terminal
@@ -408,19 +448,24 @@ impl ProgressCallback for StderrProgress {
         eprintln!("  {message}");
     }
     fn is_cancelled(&self) -> bool {
-        false
+        self.cancelled.load(Ordering::SeqCst)
     }
 }
 
-/// Best-effort tracing-subscriber init. We accept that there is no env_filter
-/// configured: the CLI is small and chatty tracing is fine for now.
+/// Best-effort tracing-subscriber init. Honours `RUST_LOG` (or
+/// `SUPAZIP_LOG`) via `tracing_subscriber::EnvFilter` so the user can
+/// crank verbosity without recompiling. A subscriber is installed at
+/// most once per process, even when called from tests.
 fn tracing_subscriber_init() -> Result<(), Box<dyn std::error::Error>> {
     use std::sync::Once;
     static ONCE: Once = Once::new();
     let mut ok = false;
     ONCE.call_once(|| {
+        let env_filter = tracing_subscriber::EnvFilter::try_from_env("SUPAZIP_LOG")
+            .or_else(|_| tracing_subscriber::EnvFilter::try_from_default_env())
+            .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
         let subscriber = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::INFO)
+            .with_env_filter(env_filter)
             .with_writer(std::io::stderr)
             .finish();
         if tracing::subscriber::set_global_default(subscriber).is_ok() {
