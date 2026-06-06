@@ -6,19 +6,24 @@
 #   .\scripts\ci.ps1                # default: build + test
 #   .\scripts\ci.ps1 -NoFmt         # skip rustfmt check
 #   .\scripts\ci.ps1 -NoClippy      # skip clippy
+#   .\scripts\ci.ps1 -NoDoc         # skip cargo doc check
 #   .\scripts\ci.ps1 -Workspace     # also build the GUI crate
 #   .\scripts\ci.ps1 -Release       # build in release mode
-
-# SupaZip local CI entry point for Windows PowerShell.
 #
-# Mirrors scripts/ci.sh so the same local workflow works on the Windows
-# dev machines (the GitHub Actions runner is also Windows). Usage:
-#
-#   .\scripts\ci.ps1                # default: build + test
-#   .\scripts\ci.ps1 -NoFmt         # skip rustfmt check
-#   .\scripts\ci.ps1 -NoClippy      # skip clippy
-#   .\scripts\ci.ps1 -Workspace     # also build the GUI crate
-#   .\scripts\ci.ps1 -Release       # build in release mode
+# Environment variables:
+#   $env:CI_BUILD_GUI = "1"          # also build the GUI crate.
+#                                    # Mirrors the `gui` job in
+#                                    # .github/workflows/ci.yml. The
+#                                    # `core-cli` job on ubuntu-latest
+#                                    # leaves it unset so the GUI build
+#                                    # is skipped there.
+#   $env:SUPAAZIP_CI_NO_FMT   = "1"  # skip rustfmt check
+#   $env:SUPAAZIP_CI_NO_CLIPPY = "1" # skip clippy
+#   $env:SUPAAZIP_CI_NO_DOC   = "1"  # skip cargo doc check
+#   $env:SUPAAZIP_CI_WORKSPACE = "1" # also build the GUI crate
+#   $env:SUPAAZIP_CI_RELEASE  = "1"  # build in release mode
+#   $env:RUN_FUZZ_SMOKE       = "1"  # run a 60s cargo-fuzz smoke locally
+#                                    # (requires a nightly toolchain)
 #
 # Using a top-level `param(...)` block exposed a parser quirk in older
 # PowerShell where the absolute workspace path looked like a switch. The
@@ -31,8 +36,9 @@ $workspace = Join-Path $root.Path "supazip"
 Set-Location $workspace
 
 $NoFmt = $env:SUPPAZIP_CI_NO_FMT -eq "1"
-$NoClippy = $env:SUPPAZIP_CI_NO_CLIPPY -eq "1"
-$Workspace = $env:SUPAAZIP_CI_WORKSPACE -eq "1"
+$NoClippy = $env:SUPAAZIP_CI_NO_CLIPPY -eq "1"
+$NoDoc = $env:SUPAAZIP_CI_NO_DOC -eq "1"
+$Workspace = $env:SUPAAZIP_CI_WORKSPACE -eq "1" -or $env:CI_BUILD_GUI -eq "1"
 $Release = $env:SUPAAZIP_CI_RELEASE -eq "1"
 
 $cargoFlags = @()
@@ -73,6 +79,12 @@ if ($env:SUPAAZIP_CI_NO_DESIGN -ne "1") {
     }
 }
 
+if (-not $NoDoc) {
+    Write-Host "==> cargo doc --no-deps"
+    & cargo doc @cargoFlags -p supazip-core -p supazip-cli --no-deps
+    if ($LASTEXITCODE -ne 0) { throw "cargo doc failed" }
+}
+
 if (-not $NoClippy) {
     Write-Host "==> cargo clippy"
     & cargo clippy @cargoFlags -p supazip-core -p supazip-cli --no-deps -- -D warnings
@@ -80,6 +92,19 @@ if (-not $NoClippy) {
     if ($Workspace) {
         & cargo clippy @cargoFlags -p supazip-gui --no-deps -- -D warnings
         if ($LASTEXITCODE -ne 0) { throw "cargo clippy gui failed" }
+    }
+}
+
+if ($env:RUN_FUZZ_SMOKE -eq "1") {
+    Write-Host "==> fuzz smoke (RUN_FUZZ_SMOKE set)"
+    Push-Location (Join-Path $workspace.Path "supazip-core")
+    try {
+        & cargo +nightly fuzz run zip_list -- -max_total_time=60
+        if ($LASTEXITCODE -ne 0) { throw "fuzz zip_list failed" }
+        & cargo +nightly fuzz run sevenz_extract -- -max_total_time=60
+        if ($LASTEXITCODE -ne 0) { throw "fuzz sevenz_extract failed" }
+    } finally {
+        Pop-Location
     }
 }
 

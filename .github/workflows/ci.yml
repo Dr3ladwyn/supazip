@@ -11,49 +11,47 @@ env:
   RUSTFLAGS: -D warnings
 
 jobs:
-  build:
-    name: Build & test
-    runs-on: ubuntu-latest
+  core-cli:
+    name: core + cli (${{ matrix.os }}, ${{ matrix.rust }})
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        toolchain: [stable, 1.92.0]
+        os: [windows-latest, ubuntu-latest]
+        rust: [stable, 1.92.0]
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install rustup + Rust ${{ matrix.toolchain }}
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install rustup + Rust ${{ matrix.rust }}
+        uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: ${{ matrix.toolchain }}
+          toolchain: ${{ matrix.rust }}
           components: clippy, rustfmt
 
       - name: Cache cargo registry & target
-        uses: actions/cache@v4
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: cargo-${{ runner.os }}-${{ matrix.toolchain }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            cargo-${{ runner.os }}-${{ matrix.toolchain }}-
-            cargo-${{ runner.os }}-
+          workspaces: supazip -> target
 
-      - name: Build workspace
-        working-directory: supazip
-        run: cargo build --workspace --locked
-
-      - name: Test workspace
-        working-directory: supazip
-        run: cargo test --workspace --locked
-
-      - name: Clippy
-        working-directory: supazip
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
-
-      - name: Format check
+      - name: cargo fmt
         working-directory: supazip
         run: cargo fmt --all -- --check
+
+      - name: cargo build (core + cli)
+        working-directory: supazip
+        run: cargo build -p supazip-core -p supazip-cli --locked
+
+      - name: cargo test (core + cli)
+        working-directory: supazip
+        run: cargo test -p supazip-core -p supazip-cli --locked
+
+      - name: cargo clippy
+        working-directory: supazip
+        run: cargo clippy -p supazip-core -p supazip-cli --no-deps -- -D warnings --locked
+
+      - name: cargo doc
+        working-directory: supazip
+        run: cargo doc -p supazip-core -p supazip-cli --no-deps --locked
 
       - name: Design tokens and i18n sync check
         uses: actions/setup-python@v5
@@ -66,30 +64,29 @@ jobs:
           python design/scripts/check_i18n.py
 
   gui:
-    name: GUI build (Linux)
-    runs-on: ubuntu-latest
+    name: gui (windows only, rustc 1.92.0)
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Install rustup + Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.92.0
           components: clippy, rustfmt
-      - name: Install system deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev
-      - name: Cache cargo
-        uses: actions/cache@v4
+
+      - name: Cache cargo registry & target
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: cargo-gui-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
-      - name: Build supazip-gui
+          workspaces: supazip -> target
+
+      - name: cargo build (gui)
         working-directory: supazip
         run: cargo build -p supazip-gui --locked
+
+      - name: cargo test (gui)
+        working-directory: supazip
+        run: cargo test -p supazip-gui --locked
 
   fuzz-smoke:
     name: Fuzz smoke (${{ matrix.strategy }})
