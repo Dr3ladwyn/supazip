@@ -1,0 +1,61 @@
+# en.toml — SupaZip strings (28 keys)
+# Source: GUI main.rs, CLI main.rs, lib.rs
+
+[app]
+title           = "SupaZip"
+empty.heading   = "SupaZip"
+empty.subtitle  = "Open an archive (7z or ZIP) to view its contents."
+status.idle     = "Open an archive to get started."
+
+[toolbar]
+open            = "Open…"
+extract         = "Extract"
+create          = "Create…"
+test            = "Test"
+cancel          = "Cancel"
+
+[dialog]
+filter.archives = "archives"
+filter.archive  = "archive"
+default_name    = "archive.zip"
+
+[grid]
+col.idx         = "#"
+col.name        = "Name"
+col.size        = "Size"
+col.encrypted   = "Encrypted"
+cell.yes        = "yes"
+cell.no         = "-"
+size.bytes      = "{n} B"
+
+[status]
+opening         = "opening {path}…"
+extracting      = "extracting {archive} to {out}…"
+creating        = "creating {target} ({n} entries)…"
+testing         = "testing {archive}…"
+loaded          = "loaded"
+ok              = "OK: {path}"
+extracted       = "extracted to {path}"
+created         = "created {path}"
+cancelled       = "operation cancelled"
+err.unsupported = "unsupported: {ext}"
+err.open        = "open: {err}"
+err.list        = "list: {err}"
+err.extract     = "extract: {err}"
+err.create      = "create: {err}"
+err.create_tgt  = "create target: {err}"
+err.test        = "test: {err}"
+err.integrity   = "test: integrity check failed"
+err.cancelled   = "create cancelled (no input files)"
+
+[cli]
+about           = "A PeaZip-style archive manager for 7z and ZIP (CLI front-end)."
+long_about      = "SupaZip CLI — list, extract, create, and test 7z and ZIP archives."
+col.idx         = "IDX"
+col.method      = "METHOD"
+col.size        = "SIZE"
+col.compressed  = "COMPRESSED"
+col.crypt       = "CRYPT"
+col.name        = "NAME"
+entries.count   = "{n} entries"
+err.ignore_size = "warning: ignoring SUPAZIP_MAX_ARCHIVE_SIZE='{raw}' (cannot parse; expected decimal bytes or with K/M/G suffix)"

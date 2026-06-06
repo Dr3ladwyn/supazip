@@ -1,0 +1,62 @@
+# ru.toml — SupaZip strings (28 keys)
+# Source: GUI main.rs, CLI main.rs, lib.rs
+# Brand voice: короткие глаголы в imperative, error:/warning: — на английском (lowercase)
+
+[app]
+title           = "SupaZip"
+empty.heading   = "SupaZip"
+empty.subtitle  = "Откройте архив (7z или ZIP), чтобы просмотреть его содержимое."
+status.idle     = "Откройте архив, чтобы начать."
+
+[toolbar]
+open            = "Открыть…"
+extract         = "Извлечь"
+create          = "Создать…"
+test            = "Проверить"
+cancel          = "Отмена"
+
+[dialog]
+filter.archives = "архивы"
+filter.archive  = "архив"
+default_name    = "archive.zip"
+
+[grid]
+col.idx         = "#"
+col.name        = "Имя"
+col.size        = "Размер"
+col.encrypted   = "Зашифровано"
+cell.yes        = "да"
+cell.no         = "—"
+size.bytes      = "{n} Б"
+
+[status]
+opening         = "открытие {path}…"
+extracting      = "извлечение {archive} в {out}…"
+creating        = "создание {target} ({n} файлов)…"
+testing         = "проверка {archive}…"
+loaded          = "загружено"
+ok              = "OK: {path}"
+extracted       = "извлечено в {path}"
+created         = "создано {path}"
+cancelled       = "операция отменена"
+err.unsupported = "не поддерживается: {ext}"
+err.open        = "открытие: {err}"
+err.list        = "чтение: {err}"
+err.extract     = "извлечение: {err}"
+err.create      = "создание: {err}"
+err.create_tgt  = "целевой файл: {err}"
+err.test        = "проверка: {err}"
+err.integrity   = "проверка: целостность нарушена"
+err.cancelled   = "создание отменено (нет входных файлов)"
+
+[cli]
+about           = "Архиватор в стиле PeaZip для 7z и ZIP (CLI-фронтенд)."
+long_about      = "SupaZip CLI — list, extract, create, и test 7z и ZIP архивов."
+col.idx         = "IDX"
+col.method      = "МЕТОД"
+col.size        = "РАЗМЕР"
+col.compressed  = "СЖАТЫЙ"
+col.crypt       = "ШИФР"
+col.name        = "ИМЯ"
+entries.count   = "файлов: {n}"
+err.ignore_size = "warning: игнорирую SUPAZIP_MAX_ARCHIVE_SIZE='{raw}' (не парсится; ожидается десятичное число байт или с суффиксом K/M/G)"
