@@ -1,5 +1,10 @@
-# en.toml — SupaZip strings (28 keys)
+# en.toml — SupaZip strings (source-of-truth English copy)
 # Source: GUI main.rs, CLI main.rs, lib.rs
+#
+# 0.2.0 (WS-D) extended the key set with password dialog, limits errors,
+# format detection, CLI compression help, GUI menu/toolbar aliases, and
+# a plural block for `progress.entries`. See assets/i18n/plural.md for
+# the plural rules and assets/i18n/README.md for the file format.
 
 [app]
 title           = "SupaZip"
@@ -38,6 +43,7 @@ ok              = "OK: {path}"
 extracted       = "extracted to {path}"
 created         = "created {path}"
 cancelled       = "operation cancelled"
+cancelling      = "cancelling…"
 err.unsupported = "unsupported: {ext}"
 err.open        = "open: {err}"
 err.list        = "list: {err}"
@@ -59,3 +65,55 @@ col.crypt       = "CRYPT"
 col.name        = "NAME"
 entries.count   = "{n} entries"
 err.ignore_size = "warning: ignoring SUPAZIP_MAX_ARCHIVE_SIZE='{raw}' (cannot parse; expected decimal bytes or with K/M/G suffix)"
+
+[cli.compression]
+deflate         = "Deflate (default, fast, broadly compatible)"
+brotli          = "Brotli (slow, best ratio for text)"
+zstd            = "Zstandard (fast, good ratio)"
+store           = "Store (no compression)"
+
+[gui.menu]
+file            = "File"
+recent          = "Recent"
+settings        = "Settings"
+
+[gui.toolbar]
+open            = "Open…"
+extract         = "Extract"
+create          = "Create…"
+test            = "Test"
+
+[dialog.password]
+title           = "Encrypted archive"
+prompt          = "Enter password for {path}:"
+show            = "Show"
+hide            = "Hide"
+wrong           = "Wrong password (or unsupported encryption)."
+
+[error]
+cancelled       = "operation cancelled"
+too_large.archive = "archive exceeds the maximum allowed size ({size} bytes)"
+too_large.entry   = "entry '{entry}' exceeds the maximum allowed uncompressed size ({size} bytes)"
+too_many_entries  = "archive contains more than {max} entries"
+
+[format]
+zip             = "ZIP"
+sevenz          = "7z"
+tar             = "TAR"
+targz           = "TAR.GZ"
+tarxz           = "TAR.XZ"
+unknown         = "unknown format"
+
+[progress]
+extracting      = "extracting…"
+creating        = "creating…"
+testing         = "testing…"
+
+# Plural section. `{}` is the count placeholder; the runtime selects the
+# right form per locale (en: one/other, ru: one/few/many, de: one/other).
+# See assets/i18n/plural.md for the rules.
+[progress.entries]
+one             = "{} entry"
+few             = "{} entries"
+many            = "{} entries"
+other           = "{} entries"

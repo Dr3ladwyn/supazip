@@ -1,6 +1,10 @@
-# ru.toml — SupaZip strings (28 keys)
+# ru.toml — SupaZip strings (Russian localisation)
 # Source: GUI main.rs, CLI main.rs, lib.rs
 # Brand voice: короткие глаголы в imperative, error:/warning: — на английском (lowercase)
+#
+# 0.2.0 (WS-D) — расширен набор ключей и добавлен plural-блок для
+# `progress.entries` (три формы: one / few / many). Подробности:
+# assets/i18n/plural.md.
 
 [app]
 title           = "SupaZip"
@@ -39,6 +43,7 @@ ok              = "OK: {path}"
 extracted       = "извлечено в {path}"
 created         = "создано {path}"
 cancelled       = "операция отменена"
+cancelling      = "отмена…"
 err.unsupported = "не поддерживается: {ext}"
 err.open        = "открытие: {err}"
 err.list        = "чтение: {err}"
@@ -60,3 +65,55 @@ col.crypt       = "ШИФР"
 col.name        = "ИМЯ"
 entries.count   = "файлов: {n}"
 err.ignore_size = "warning: игнорирую SUPAZIP_MAX_ARCHIVE_SIZE='{raw}' (не парсится; ожидается десятичное число байт или с суффиксом K/M/G)"
+
+[cli.compression]
+deflate         = "Deflate (по умолчанию, быстро, широкая совместимость)"
+brotli          = "Brotli (медленно, лучшее сжатие для текста)"
+zstd            = "Zstandard (быстро, хорошее сжатие)"
+store           = "Store (без сжатия)"
+
+[gui.menu]
+file            = "Файл"
+recent          = "Недавние"
+settings        = "Настройки"
+
+[gui.toolbar]
+open            = "Открыть…"
+extract         = "Извлечь"
+create          = "Создать…"
+test            = "Проверить"
+
+[dialog.password]
+title           = "Зашифрованный архив"
+prompt          = "Введите пароль для {path}:"
+show            = "Показать"
+hide            = "Скрыть"
+wrong           = "Неверный пароль (или неподдерживаемое шифрование)."
+
+[error]
+cancelled       = "операция отменена"
+too_large.archive = "архив превышает максимально допустимый размер ({size} байт)"
+too_large.entry   = "элемент «{entry}» превышает максимально допустимый размер в распакованном виде ({size} байт)"
+too_many_entries  = "архив содержит больше {max} элементов"
+
+[format]
+zip             = "ZIP"
+sevenz          = "7z"
+tar             = "TAR"
+targz           = "TAR.GZ"
+tarxz           = "TAR.XZ"
+unknown         = "неизвестный формат"
+
+[progress]
+extracting      = "извлечение…"
+creating        = "создание…"
+testing         = "проверка…"
+
+# Plural section. `{}` — placeholder с числом; рантайм выбирает форму
+# по локали (ru: one/few/many, en: one/other, de: one/other).
+# Подробности: assets/i18n/plural.md.
+[progress.entries]
+one             = "{} файл"
+few             = "{} файла"
+many            = "{} файлов"
+other           = "{} файлов"

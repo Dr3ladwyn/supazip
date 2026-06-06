@@ -1,18 +1,24 @@
 #!/usr/bin/env python3
-r"""Sync-check for assets/i18n/en.toml and assets/i18n/ru.toml.
+r"""Sync-check for assets/i18n/*.toml (en, ru, de, ...).
 
-Verifies:
-  1. The set of leaf keys (dotted, including `[section] [subsection.key]`
-     flattening) is identical in both files.
-  2. For each key, the set of `{placeholder}` tokens in the value string
-     is identical in both files (regex `` \{[a-z_][a-z_0-9]*\} ``).
-  3. Both files have at least one value.
+Verifies, for every pair of locale files in ``assets/i18n/``:
 
-Stdlib only. Uses `tomllib` (3.11+); on older Pythons, falls back to a
-hand-rolled reader for the subset of TOML we need (string values,
-`sections`, dotted keys within a section).
+  1. The set of top-level (non-plural) leaf keys is identical. Plural
+     keys (sub-tables with sub-keys like ``one`` / ``other``) are
+     tracked separately so a locale that does not use ``few`` does
+     not fail the parity check.
+  2. For each non-plural key, the set of ``{placeholder}`` tokens in
+     the value string is identical across locales.
+  3. Every plural key has at least the ``one`` and ``other`` sub-keys
+     in every locale, and every non-empty plural form contains the
+     ``{}`` count placeholder.
+  4. Each file has at least one leaf value.
 
-Exits 0 on success with `OK: en.toml and ru.toml are in sync (N keys)`.
+Stdlib only. Uses ``tomllib`` (Python 3.11+); on older Pythons, falls
+back to a hand-rolled reader for the subset of TOML we need (string
+values, ``[sections]``, dotted keys, and sub-tables of string values).
+
+Exits 0 on success with ``OK: <N> locales in sync (<K> keys)``.
 Exits 1 on failure with per-key diagnostics.
 """
 
@@ -25,10 +31,12 @@ from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-EN_PATH = REPO_ROOT / "assets" / "i18n" / "en.toml"
-RU_PATH = REPO_ROOT / "assets" / "i18n" / "ru.toml"
+I18N_DIR = REPO_ROOT / "assets" / "i18n"
 
-PLACEHOLDER_RE = re.compile(r"\{[a-z_][a-z_0-9]*\}")
+NAMED_PLACEHOLDER_RE = re.compile(r"\{[a-z_][a-z_0-9]*\}")
+BARE_PLACEHOLDER_RE = re.compile(r"\{\}")
+PLURAL_CATEGORIES = ("zero", "one", "two", "few", "many", "other")
+PLURAL_REQUIRED = ("one", "other")
 
 
 class TomlParseError(Exception):
@@ -37,14 +45,8 @@ class TomlParseError(Exception):
 
 
 def _load_toml(path: Path) -> dict[str, Any]:
-    """Load a flat TOML mapping. Uses stdlib `tomllib` on 3.11+; falls
-    back to a hand-rolled parser on older versions.
-
-    The hand-rolled parser handles the subset of TOML used by en.toml and
-    ru.toml: `[table]` headers, `key = "string"` (or unquoted string)
-    values, blank lines, and `# comments`. It does not handle arrays,
-    inline tables, multi-line strings, dates, or numbers.
-    """
+    """Load a flat TOML mapping. Uses stdlib ``tomllib`` on 3.11+;
+    falls back to a hand-rolled parser on older versions."""
     try:
         import tomllib  # type: ignore[import-not-found]
     except ImportError:
@@ -58,11 +60,7 @@ def _load_toml(path: Path) -> dict[str, Any]:
 
 
 def _strip_inline_comment(line: str) -> str:
-    """Remove `# comment` from a TOML line, respecting quoted strings.
-
-    TOML's rule: `#` starts a comment only when preceded by whitespace or
-    at the start of a line.
-    """
+    """Remove ``# comment`` from a TOML line, respecting quoted strings."""
     in_single = False
     in_double = False
     for i, ch in enumerate(line):
@@ -77,11 +75,6 @@ def _strip_inline_comment(line: str) -> str:
 
 
 def _parse_string_value(raw: str) -> str:
-    """Coerce a TOML scalar RHS into a Python string.
-
-    Supports basic "double", 'single', and bare unquoted strings. Returns
-    the bare string with surrounding whitespace stripped.
-    """
     s = raw.strip()
     if not s:
         return ""
@@ -91,13 +84,6 @@ def _parse_string_value(raw: str) -> str:
 
 
 def _parse_toml_manual(text: str) -> dict[str, Any]:
-    """Minimal TOML parser for our i18n files.
-
-    Returns a nested dict. A `[section]` header opens (or resets) a
-    subtable; a `[a.b]` header opens nested subtables. Keys with a dot
-    inside a section also create nested subtables, matching TOML's
-    dotted-key semantics.
-    """
     root: dict[str, Any] = {}
     current: dict[str, Any] = root
     last_line_no = 0
@@ -110,7 +96,6 @@ def _parse_toml_manual(text: str) -> dict[str, Any]:
         if not line.strip():
             continue
         if line.lstrip().startswith("["):
-            # Table header: must be a single [section] on this line.
             if not (line.startswith("[") and line.endswith("]")):
                 raise TomlParseError(
                     f"line {last_line_no}: invalid table header: {raw!r}"
@@ -134,11 +119,10 @@ def _parse_toml_manual(text: str) -> dict[str, Any]:
                 elif not isinstance(nxt, dict):
                     raise TomlParseError(
                         f"line {last_line_no}: table segment {part!r} "
-                        f"is not a table"
+                        "is not a table"
                     )
                 current = nxt
             continue
-        # key = value
         if "=" not in line:
             raise TomlParseError(
                 f"line {last_line_no}: missing '=' in key/value: {raw!r}"
@@ -150,7 +134,6 @@ def _parse_toml_manual(text: str) -> dict[str, Any]:
             raise TomlParseError(
                 f"line {last_line_no}: empty key: {raw!r}"
             )
-        # Allow dotted keys to create nested tables.
         target = current
         if "." in key:
             parts = key.split(".")
@@ -167,7 +150,7 @@ def _parse_toml_manual(text: str) -> dict[str, Any]:
                 elif not isinstance(nxt, dict):
                     raise TomlParseError(
                         f"line {last_line_no}: dotted segment {part!r} "
-                        f"is not a table"
+                        "is not a table"
                     )
                 target = nxt
             leaf = parts[-1].strip()
@@ -181,92 +164,189 @@ def _parse_toml_manual(text: str) -> dict[str, Any]:
     return root
 
 
-def _flatten(data: Any, prefix: str = "") -> dict[str, str]:
-    """Flatten nested dicts into dotted keys → string values.
-
-    Non-string leaf values are coerced via `str()`; i18n files only
-    contain strings, but this keeps the function robust.
-    """
-    out: dict[str, str] = {}
-    if isinstance(data, dict):
-        for k, v in data.items():
-            child = f"{prefix}.{k}" if prefix else str(k)
-            if isinstance(v, dict):
-                out.update(_flatten(v, child))
-            else:
-                out[child] = v if isinstance(v, str) else str(v)
-    return out
+def _is_plural_table(value: Any) -> bool:
+    if not isinstance(value, dict) or not value:
+        return False
+    return all(
+        isinstance(k, str) and k in PLURAL_CATEGORIES and isinstance(v, str)
+        for k, v in value.items()
+    )
 
 
-def _placeholders(value: str) -> frozenset[str]:
-    return frozenset(PLACEHOLDER_RE.findall(value))
+def _split_scalars_and_plurals(
+    data: dict[str, Any], prefix: str = ""
+) -> tuple[dict[str, str], dict[str, dict[str, str]]]:
+    scalars: dict[str, str] = {}
+    plurals: dict[str, dict[str, str]] = {}
+
+    def visit(node: Any, path: str) -> None:
+        if isinstance(node, dict):
+            if _is_plural_table(node):
+                if path in plurals:
+                    raise TomlParseError(
+                        f"duplicate plural key {path!r}"
+                    )
+                plurals[path] = {k: v for k, v in node.items()}
+                return
+            for k, v in node.items():
+                child = f"{path}.{k}" if path else str(k)
+                visit(v, child)
+            return
+        scalars[path] = node if isinstance(node, str) else str(node)
+
+    visit(data, prefix)
+    return scalars, plurals
+
+
+def _named_placeholders(value: str) -> frozenset[str]:
+    return frozenset(NAMED_PLACEHOLDER_RE.findall(value))
+
+
+def _has_bare_placeholder(value: str) -> bool:
+    return bool(BARE_PLACEHOLDER_RE.search(value))
+
+
+def _check_plural(
+    key: str,
+    per_locale: dict[str, dict[str, str]],
+    failures: list[str],
+) -> None:
+    used: set[str] = set()
+    for forms in per_locale.values():
+        used.update(forms.keys())
+    for locale, forms in per_locale.items():
+        for required in PLURAL_REQUIRED:
+            if required not in forms:
+                failures.append(
+                    f"FAIL: plural key '{key}' in {locale}.toml "
+                    f"missing required form '{required}'"
+                )
+        for cat, value in forms.items():
+            if value and not _has_bare_placeholder(value):
+                failures.append(
+                    f"FAIL: plural key '{key}' form '{cat}' in "
+                    f"{locale}.toml is non-empty but missing the "
+                    f"'{{}}' count placeholder"
+                )
+        for cat in used:
+            if cat not in forms:
+                failures.append(
+                    f"FAIL: plural key '{key}' in {locale}.toml "
+                    f"missing form '{cat}' (used by another locale)"
+                )
+
+
+def _check_locale_pair(
+    a_name: str,
+    a_scalars: dict[str, str],
+    a_plurals: dict[str, dict[str, str]],
+    b_name: str,
+    b_scalars: dict[str, str],
+    b_plurals: dict[str, dict[str, str]],
+    failures: list[str],
+) -> None:
+    for key in sorted(a_scalars.keys() - b_scalars.keys()):
+        failures.append(
+            f"FAIL: key '{key}' missing in {b_name}.toml"
+        )
+    for key in sorted(b_scalars.keys() - a_scalars.keys()):
+        failures.append(
+            f"FAIL: key '{key}' missing in {a_name}.toml"
+        )
+    for key in sorted(a_scalars.keys() & b_scalars.keys()):
+        if _named_placeholders(a_scalars[key]) != _named_placeholders(
+            b_scalars[key]
+        ):
+            failures.append(
+                f"FAIL: key '{key}' placeholders differ: "
+                f"{a_name}={sorted(_named_placeholders(a_scalars[key]))} "
+                f"{b_name}={sorted(_named_placeholders(b_scalars[key]))}"
+            )
+
+    for key in sorted(a_plurals.keys() - b_plurals.keys()):
+        failures.append(
+            f"FAIL: plural key '{key}' missing in {b_name}.toml"
+        )
+    for key in sorted(b_plurals.keys() - a_plurals.keys()):
+        failures.append(
+            f"FAIL: plural key '{key}' missing in {a_name}.toml"
+        )
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="check_i18n",
         description=(
-            "Verify that assets/i18n/en.toml and assets/i18n/ru.toml are "
-            "in sync (keys + placeholder tokens)."
+            "Verify that assets/i18n/*.toml are in sync (keys, "
+            "placeholder tokens, plural sections)."
         ),
     )
     args = parser.parse_args(argv)
     del args  # noqa: F841
 
-    if not EN_PATH.exists():
-        print(f"FAIL: {EN_PATH}: file not found")
-        return 1
-    if not RU_PATH.exists():
-        print(f"FAIL: {RU_PATH}: file not found")
+    if not I18N_DIR.exists():
+        print(f"FAIL: {I18N_DIR}: directory not found")
         return 1
 
-    try:
-        en_raw = _load_toml(EN_PATH)
-    except (TomlParseError, OSError) as exc:
-        print(f"FAIL: {EN_PATH}: TOML parse error: {exc}")
+    locale_files = sorted(
+        p for p in I18N_DIR.glob("*.toml") if p.is_file()
+    )
+    if not locale_files:
+        print(f"FAIL: {I18N_DIR}: no .toml locale files found")
         return 1
 
-    try:
-        ru_raw = _load_toml(RU_PATH)
-    except (TomlParseError, OSError) as exc:
-        print(f"FAIL: {RU_PATH}: TOML parse error: {exc}")
-        return 1
-
-    en = _flatten(en_raw)
-    ru = _flatten(ru_raw)
-
-    if not en:
-        print(f"FAIL: {EN_PATH}: no leaf keys found (file appears empty)")
-        return 1
-    if not ru:
-        print(f"FAIL: {RU_PATH}: no leaf keys found (file appears empty)")
-        return 1
-
+    locales: dict[str, tuple[dict[str, str], dict[str, dict[str, str]]]] = {}
     failures: list[str] = []
-    en_keys = set(en.keys())
-    ru_keys = set(ru.keys())
 
-    for key in sorted(en_keys - ru_keys):
-        failures.append(f"FAIL: key '{key}' missing in {RU_PATH.name}")
-    for key in sorted(ru_keys - en_keys):
-        failures.append(f"FAIL: key '{key}' missing in {EN_PATH.name}")
+    for path in locale_files:
+        locale = path.stem
+        try:
+            raw = _load_toml(path)
+        except (TomlParseError, OSError) as exc:
+            print(f"FAIL: {path}: TOML parse error: {exc}")
+            return 1
+        try:
+            scalars, plurals = _split_scalars_and_plurals(raw)
+        except TomlParseError as exc:
+            print(f"FAIL: {path}: {exc}")
+            return 1
+        if not scalars and not plurals:
+            print(f"FAIL: {path}: no leaf keys found (file appears empty)")
+            return 1
+        locales[locale] = (scalars, plurals)
 
-    shared = en_keys & ru_keys
-    for key in sorted(shared):
-        en_ph = _placeholders(en[key])
-        ru_ph = _placeholders(ru[key])
-        if en_ph != ru_ph:
-            failures.append(
-                f"FAIL: key '{key}' placeholders differ: "
-                f"en={sorted(en_ph)} ru={sorted(ru_ph)}"
+    locale_names = sorted(locales.keys())
+    for i, a in enumerate(locale_names):
+        for b in locale_names[i + 1 :]:
+            _check_locale_pair(
+                a, *locales[a], b, *locales[b], failures,
             )
+
+    all_plural_keys: set[str] = set()
+    for _, plurals in locales.values():
+        all_plural_keys.update(plurals.keys())
+    for key in sorted(all_plural_keys):
+        per_locale = {
+            locale: plurals[key]
+            for locale, (_, plurals) in locales.items()
+            if key in plurals
+        }
+        _check_plural(key, per_locale, failures)
 
     if failures:
         for line in failures:
             print(line)
         return 1
 
-    print(f"OK: en.toml and ru.toml are in sync ({len(shared)} keys)")
+    sample = next(iter(locales.values()))
+    n_keys = len(sample[0]) + len(sample[1])
+    total = sum(
+        1 for _, (s, p) in locales.items() for _ in (*s, *p)
+    )
+    print(
+        f"OK: {len(locales)} locales in sync "
+        f"({n_keys} keys, {total} total leaves across locales)"
+    )
     return 0
 
 

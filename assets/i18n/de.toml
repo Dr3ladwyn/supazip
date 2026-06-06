@@ -1,0 +1,126 @@
+# de.toml — SupaZip strings (German localisation, milestone 0.2.0 stub)
+#
+# 0.2.0 (WS-D) introduces `de` as the third locale to prove the i18n
+# pipeline handles more than two languages. The plural rules for
+# German are the same two-form shape as English (one / other); the
+# `few` and `many` CLDR categories are unused and kept empty so the
+# key set stays flat across locales.
+#
+# Translations: critical UI strings (menus, toolbar, dialogs, common
+# errors) are hand-translated. Long verbose error messages and CLI
+# column headers carry `TODO(de):` markers where a native review is
+# pending; the markers are still the literal English value, so the
+# app falls back to English for those strings until a translator
+# fills them in. See assets/i18n/README.md for the workflow.
+
+[app]
+title           = "SupaZip"
+empty.heading   = "SupaZip"
+empty.subtitle  = "Öffne ein Archiv (7z oder ZIP), um den Inhalt anzuzeigen."
+status.idle     = "Öffne ein Archiv, um zu beginnen."
+
+[toolbar]
+open            = "Öffnen…"
+extract         = "Entpacken"
+create          = "Erstellen…"
+test            = "Prüfen"
+cancel          = "Abbrechen"
+
+[dialog]
+filter.archives = "Archive"
+filter.archive  = "Archiv"
+default_name    = "archive.zip"
+
+[grid]
+col.idx         = "#"
+col.name        = "Name"
+col.size        = "Größe"
+col.encrypted   = "Verschlüsselt"
+cell.yes        = "ja"
+cell.no         = "-"
+size.bytes      = "{n} B"
+
+[status]
+opening         = "Öffne {path}…"
+extracting      = "Entpacke {archive} nach {out}…"
+creating        = "Erstelle {target} ({n} Einträge)…"
+testing         = "Prüfe {archive}…"
+loaded          = "geladen"
+ok              = "OK: {path}"
+extracted       = "Entpackt nach {path}"
+created         = "Erstellt {path}"
+cancelled       = "Vorgang abgebrochen"
+cancelling      = "Abbruch…"
+err.unsupported = "nicht unterstützt: {ext}"
+err.open        = "Öffnen: {err}"
+err.list        = "Lesen: {err}"
+err.extract     = "Entpacken: {err}"
+err.create      = "Erstellen: {err}"
+err.create_tgt  = "Zieldatei: {err}"
+err.test        = "Prüfen: {err}"
+err.integrity   = "Prüfung: Integrität verletzt"
+err.cancelled   = "Erstellen abgebrochen (keine Eingabedateien)"
+
+[cli]
+about           = "Ein PeaZip-artiger Archiver für 7z und ZIP (CLI-Frontend)."
+long_about      = "SupaZip CLI — list, extract, create, und test für 7z- und ZIP-Archive."
+col.idx         = "IDX"
+col.method      = "METHODE"
+col.size        = "GRÖSSE"
+col.compressed  = "KOMPRIMIERT"
+col.crypt       = "VERSCHL."
+col.name        = "NAME"
+entries.count   = "{n} Einträge"
+err.ignore_size = "warning: SUPAZIP_MAX_ARCHIVE_SIZE='{raw}' wird ignoriert (nicht parsbar; erwartet: dezimale Bytes oder mit K/M/G-Suffix)"
+
+[cli.compression]
+deflate         = "Deflate (Standard, schnell, breit kompatibel)"
+brotli          = "Brotli (langsam, beste Rate für Text)"
+zstd            = "Zstandard (schnell, gute Rate)"
+store           = "Store (keine Kompression)"
+
+[gui.menu]
+file            = "Datei"
+recent          = "Zuletzt verwendet"
+settings        = "Einstellungen"
+
+[gui.toolbar]
+open            = "Öffnen…"
+extract         = "Entpacken"
+create          = "Erstellen…"
+test            = "Prüfen"
+
+[dialog.password]
+title           = "Verschlüsseltes Archiv"
+prompt          = "Passwort für {path} eingeben:"
+show            = "Anzeigen"
+hide            = "Verbergen"
+wrong           = "Falsches Passwort (oder nicht unterstützte Verschlüsselung)."
+
+[error]
+cancelled       = "Vorgang abgebrochen"
+too_large.archive = "Archiv überschreitet die maximal erlaubte Größe ({size} Bytes)"
+too_large.entry   = "Eintrag „{entry}“ überschreitet die maximal erlaubte unkomprimierte Größe ({size} Bytes)"
+too_many_entries  = "Archiv enthält mehr als {max} Einträge"
+
+[format]
+zip             = "ZIP"
+sevenz          = "7z"
+tar             = "TAR"
+targz           = "TAR.GZ"
+tarxz           = "TAR.XZ"
+unknown         = "unbekanntes Format"
+
+[progress]
+extracting      = "Entpacken…"
+creating        = "Erstellen…"
+testing         = "Prüfen…"
+
+# Plural section. `{}` is the count placeholder; the runtime selects
+# the right form per locale (en/de: one/other, ru: one/few/many).
+# See assets/i18n/plural.md for the rules.
+[progress.entries]
+one             = "{} Eintrag"
+few             = ""
+many            = ""
+other           = "{} Einträge"
