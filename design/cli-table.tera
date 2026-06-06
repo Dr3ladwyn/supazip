@@ -1,0 +1,96 @@
+{# =============================================================================
+   SupaZip — CLI archive listing table (Tera template)
+   -----------------------------------------------------------------------------
+   Purpose   : Define the visual contract for the `supazip list` stdout table.
+               The CLI today prints a hand-formatted `printf`-style table; this
+               file freezes the column widths, alignment, rule character, and
+               the entry-count trailer so the future renderer (a follow-up PR)
+               can be reviewed against a stable spec.
+
+   Audience  : Power users of the SupaZip CLI; reviewers of the CLI refactor
+               PR; the design system (DESIGN.md §"CLI styling" links here).
+
+   Scope     : Document/contract only. THIS FILE IS NOT EXECUTED BY THE CLI
+               IN v1. It is a single source of truth for the table layout.
+               The actual Rust renderer (planned for a later PR) will produce
+               byte-identical output to the worked example at the bottom of
+               this file.
+
+   Layout    : Fixed-width monospace, total width = 72 columns.
+               IDX        : width  4, right-aligned
+               METHOD     : width 12, left-aligned, padded/truncated
+               SIZE       : width 12, right-aligned, humanised (KiB/MiB/GiB)
+               COMPRESSED : width 12, right-aligned, humanised
+               CRYPT      : width  8, left-aligned,  "yes" or "-"
+               NAME       : unbounded, takes the rest of the line
+               Columns are separated by exactly two spaces ("  ").
+               The rule line is the Unicode box-drawing character
+               U+2500 BOX DRAWINGS LIGHT HORIZONTAL ("─") repeated 72 times.
+               The final "N entries" line is plain text, no rule, no border.
+
+   Renderers : The format directives above are directly expressible in:
+                 * Tera / Jinja2 (this file)        — using width-15 pad filters
+                 * Rust `format!` / `writeln!`      — `{idx:>4}`, `{method:<12}`
+                 * Python f-strings                  — f"{idx:>4d}"
+               Any future implementation MUST produce the same byte stream
+               as the worked example at the bottom of this file.
+
+   Tera notes: Tera does not ship Rust-style format specifiers, so the
+               column padding is done with `| truncate(length=12, end="…")`
+               and `| padding(width=12, align="right")` style filters
+               expressed via the `width`/`align` arguments below. Adjust
+               filter names to match the engine you wire up; the *widths*
+               and *alignments* above are what matter for the contract.
+   ============================================================================= #}
+IDX    METHOD        SIZE         COMPRESSED   CRYPT    NAME
+────────────────────────────────────────────────────────────────────────
+{% for row in rows -%}
+{{ row.idx | width:4 | align:"right" }}  {{ row.method | truncate:12 | align:"left" | width:12 }}  {{ row.size | width:12 | align:"right" }}  {{ row.compressed | width:12 | align:"right" }}  {{ row.crypt | width:8 | align:"left" }}  {{ row.name }}
+{% endfor -%}
+{{ rows | length }} entries
+
+{# =============================================================================
+   Worked example
+   -----------------------------------------------------------------------------
+   Input (`rows`) — the three entries from `cli_round_trip.rs::build_small_zip`,
+   the same fixture the live CLI test `list_zip_via_cli` consumes. Compressed
+   sizes below are illustrative (real deflate ratios vary); the *layout* is
+   the contract.
+
+   rows = [
+     { idx: 0, method: "Deflate",   size: 15, compressed:  19, crypt: "-",   name: "hello.txt"      },
+     { idx: 1, method: "Deflate",   size: 22, compressed:  26, crypt: "-",   name: "greet/hi.txt"   },
+     { idx: 2, method: "Store",     size:  4, compressed:   4, crypt: "yes", name: "data.bin"       },
+   ]
+
+   Expected rendered output (every line is 72 columns wide except the NAME
+   tail, which extends to the right as needed; the rule line is exactly 72
+   "─" characters — copy-paste verified):
+
+   IDX    METHOD        SIZE         COMPRESSED   CRYPT    NAME
+   ────────────────────────────────────────────────────────────────────────
+      0  Deflate              15             19  -        hello.txt
+      1  Deflate              22             26  -        greet/hi.txt
+      2  Store                 4              4  yes     data.bin
+
+   3 entries
+
+   Width audit (excluding the two-space gaps between columns):
+     4 (IDX) + 12 (METHOD) + 12 (SIZE) + 12 (COMPRESSED) + 8 (CRYPT) = 48
+     + 4 gaps × 2 spaces = 8
+     = 56 columns for the fixed prefix; the rule line is 72 columns so the
+       trailing NAME column has 72 − 56 = 16 columns of visual breathing
+       room before the first file in the example. Long names flow past
+       72 columns without wrapping (terminals soft-wrap as they see fit).
+
+   METHOD overflow: a method name longer than 12 chars must be truncated
+   to 11 visible chars + a single "…" (U+2026 HORIZONTAL ELLIPSIS). Example:
+     "LZMA2:48kfast" → "LZMA2:48kfas…"
+
+   CRYPT: only the literals "yes" and "-" are permitted. Renderers MUST NOT
+   leak "true"/"false"/"1"/"0" — those are for the data model, not the UI.
+
+   Final line: "N entries" where N is `{{ rows | length }}`. The line has no
+   leading rule and no border. Singular form ("1 entry") is intentionally
+   not used — the CLI's tone is terse and consistent.
+   ============================================================================= #}
