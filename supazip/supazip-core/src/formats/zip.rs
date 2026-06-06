@@ -6,7 +6,8 @@ use zip::{AesMode, CompressionMethod, DateTime as ZipDateTime, ZipArchive, ZipWr
 
 use crate::error::ArchiverError;
 use crate::traits::{
-    ArchiveEntry, ArchiveFormat, CreateOptions, Limits, ProgressCallback, WriteSeek,
+    ArchiveEntry, ArchiveFormat, CompressionMethod as SupaCompressionMethod, CreateOptions, Limits,
+    ProgressCallback, WriteSeek,
 };
 
 /// Wraps a `Read` in a `std::io::Take` bounded by `max_archive_size`, returning
@@ -32,19 +33,60 @@ impl Default for ZipBackend {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Free-standing helpers for the WS-B compression codec support.
+// ---------------------------------------------------------------------------
+
+fn effective_compression(options: &CreateOptions) -> SupaCompressionMethod {
+    match options.compression {
+        SupaCompressionMethod::Deflate => {
+            SupaCompressionMethod::from_legacy_str(&options.compression_method)
+        }
+        other => other,
+    }
+}
+
+fn brotli_compress_entry(data: &[u8]) -> Result<Vec<u8>, ArchiverError> {
+    let mut out = Vec::with_capacity(data.len() / 2 + 64);
+    {
+        let mut writer = brotli::CompressorWriter::new(&mut out, 4096, 6, 22);
+        std::io::Write::write_all(&mut writer, data).map_err(ArchiverError::Io)?;
+    }
+    Ok(out)
+}
+
+fn brotli_decompress_entry(data: &[u8]) -> Result<Vec<u8>, ArchiverError> {
+    let mut out = Vec::with_capacity(data.len() * 3 + 64);
+    brotli::BrotliDecompress(&mut std::io::Cursor::new(data), &mut out)
+        .map_err(|e| ArchiverError::invalid(format!("brotli decompress: {e}")))?;
+    Ok(out)
+}
+
+fn pre_compress_for_method(
+    method: SupaCompressionMethod,
+    data: &[u8],
+) -> Result<(Vec<u8>, CompressionMethod), ArchiverError> {
+    match method {
+        SupaCompressionMethod::Brotli => {
+            let compressed = brotli_compress_entry(data)?;
+            Ok((compressed, CompressionMethod::Stored))
+        }
+        other => Ok((data.to_vec(), to_zip_method(other))),
+    }
+}
+
+fn to_zip_method(method: SupaCompressionMethod) -> CompressionMethod {
+    match method {
+        SupaCompressionMethod::Deflate => CompressionMethod::Deflated,
+        SupaCompressionMethod::Store => CompressionMethod::Stored,
+        SupaCompressionMethod::Zstd => CompressionMethod::Zstd,
+        SupaCompressionMethod::Brotli => CompressionMethod::Stored,
+    }
+}
+
 impl ZipBackend {
     pub fn new() -> Self {
         Self
-    }
-
-    fn conversion_method_to_zip(method: &str) -> CompressionMethod {
-        match method.to_lowercase().as_str() {
-            "deflate" | "deflated" => CompressionMethod::Deflated,
-            "store" | "none" => CompressionMethod::Stored,
-            "bzip2" => CompressionMethod::Bzip2,
-            "zstd" => CompressionMethod::Zstd,
-            _ => CompressionMethod::Deflated,
-        }
     }
 
     fn zip_datetime_to_chrono(dt: ZipDateTime) -> Option<DateTime<Utc>> {
@@ -121,13 +163,29 @@ impl ArchiveFormat for ZipBackend {
             let name = file.name().to_string();
             let is_dir = name.ends_with('/');
 
+            // SupaZip stores Brotli-compressed entries as `Stored` ZIP entries
+            // with a `.br` filename suffix (the zip crate has no native Brotli
+            // codec). Surface the codec as "brotli" in the listing, and strip
+            // the suffix from the user-facing name / path so downstream code
+            // (the GUI's file list, the CLI's `list` table) keeps operating on
+            // the logical file name.
+            let is_brotli = !is_dir && name.ends_with(".br");
+            let logical_name = if is_brotli {
+                name.trim_end_matches(".br").to_string()
+            } else {
+                name.clone()
+            };
+            let compression_method = if is_brotli {
+                "brotli".to_string()
+            } else {
+                Self::compression_method_to_string(file.compression())
+            };
+
             let modified = file.last_modified().and_then(Self::zip_datetime_to_chrono);
 
-            let compression_method = Self::compression_method_to_string(file.compression());
-
             let entry = ArchiveEntry {
-                name: name.clone(),
-                path: name.clone(),
+                name: logical_name.clone(),
+                path: logical_name.clone(),
                 is_dir,
                 size: file.size(),
                 compressed_size: file.compressed_size(),
@@ -204,11 +262,33 @@ impl ArchiveFormat for ZipBackend {
                 let name = file.name().to_string();
                 progress.set_message(&name);
 
+                let is_brotli = !file.is_dir() && name.ends_with(".br");
+                let logical_name = if is_brotli {
+                    name.trim_end_matches(".br").to_string()
+                } else {
+                    name.clone()
+                };
                 let enclosed = match file.enclosed_name() {
                     Some(path) => path.to_owned(),
                     None => continue,
                 };
-                let outpath = dest_dir.join(enclosed);
+                let outpath = if is_brotli {
+                    let stripped = match std::path::Path::new(&logical_name).file_name() {
+                        Some(s) => s.to_owned(),
+                        None => continue,
+                    };
+                    if let Some(parent) = enclosed.parent() {
+                        if !parent.as_os_str().is_empty() {
+                            dest_dir.join(parent).join(stripped)
+                        } else {
+                            dest_dir.join(stripped)
+                        }
+                    } else {
+                        dest_dir.join(stripped)
+                    }
+                } else {
+                    dest_dir.join(enclosed)
+                };
 
                 if file.is_dir() {
                     std::fs::create_dir_all(&outpath).map_err(ArchiverError::Io)?;
@@ -219,6 +299,22 @@ impl ArchiveFormat for ZipBackend {
                     if !parent.as_os_str().is_empty() {
                         std::fs::create_dir_all(parent).map_err(ArchiverError::Io)?;
                     }
+                }
+
+                if is_brotli {
+                    let mut payload = Vec::new();
+                    file.read_to_end(&mut payload).map_err(ArchiverError::Io)?;
+                    if processed.saturating_add(payload.len() as u64) > limits.max_entry_size {
+                        return Err(ArchiverError::TooLarge(format!(
+                            "entry '{}' exceeds max_entry_size {}",
+                            name, limits.max_entry_size
+                        )));
+                    }
+                    let decoded = brotli_decompress_entry(&payload)?;
+                    std::fs::write(&outpath, &decoded).map_err(ArchiverError::Io)?;
+                    processed += decoded.len() as u64;
+                    progress.set_progress(processed, 0);
+                    continue;
                 }
 
                 let mut outfile = std::fs::File::create(&outpath).map_err(ArchiverError::Io)?;
@@ -264,11 +360,34 @@ impl ArchiveFormat for ZipBackend {
                         .map_err(|e| ArchiverError::invalid_with_source("zip name lookup", e))?
                 };
 
+                let name = file.name().to_string();
+                let is_brotli = !file.is_dir() && name.ends_with(".br");
+                let logical_name = if is_brotli {
+                    name.trim_end_matches(".br").to_string()
+                } else {
+                    name.clone()
+                };
                 let enclosed = match file.enclosed_name() {
                     Some(path) => path.to_owned(),
                     None => continue,
                 };
-                let outpath = dest_dir.join(enclosed);
+                let outpath = if is_brotli {
+                    let stripped = match std::path::Path::new(&logical_name).file_name() {
+                        Some(s) => s.to_owned(),
+                        None => continue,
+                    };
+                    if let Some(parent) = enclosed.parent() {
+                        if !parent.as_os_str().is_empty() {
+                            dest_dir.join(parent).join(stripped)
+                        } else {
+                            dest_dir.join(stripped)
+                        }
+                    } else {
+                        dest_dir.join(stripped)
+                    }
+                } else {
+                    dest_dir.join(enclosed)
+                };
 
                 if file.is_dir() {
                     std::fs::create_dir_all(&outpath).map_err(ArchiverError::Io)?;
@@ -279,6 +398,22 @@ impl ArchiveFormat for ZipBackend {
                     if !parent.as_os_str().is_empty() {
                         std::fs::create_dir_all(parent).map_err(ArchiverError::Io)?;
                     }
+                }
+
+                if is_brotli {
+                    let mut payload = Vec::new();
+                    file.read_to_end(&mut payload).map_err(ArchiverError::Io)?;
+                    if processed.saturating_add(payload.len() as u64) > limits.max_entry_size {
+                        return Err(ArchiverError::TooLarge(format!(
+                            "entry '{}' exceeds max_entry_size {}",
+                            entry_name, limits.max_entry_size
+                        )));
+                    }
+                    let decoded = brotli_decompress_entry(&payload)?;
+                    std::fs::write(&outpath, &decoded).map_err(ArchiverError::Io)?;
+                    processed += decoded.len() as u64;
+                    progress.set_progress(processed, 0);
+                    continue;
                 }
 
                 let mut outfile = std::fs::File::create(&outpath).map_err(ArchiverError::Io)?;
@@ -336,7 +471,12 @@ impl ArchiveFormat for ZipBackend {
         // hold a non-static password slice.
         let mut zip_writer = ZipWriter::new(writer);
 
-        let compression = Self::conversion_method_to_zip(&options.compression_method);
+        // WS-B: the typed `options.compression` field is the source of
+        // truth; the legacy `options.compression_method` string is only
+        // consulted when the typed field is at its default value
+        // (`Deflate`). `effective_compression` implements that preference.
+        let method = effective_compression(options);
+        let compression = to_zip_method(method);
         let compression_level = options.compression_level.map(|l| l as i64);
 
         let mut file_options: FileOptions<'_, ()> = FileOptions::default()
@@ -366,9 +506,34 @@ impl ArchiveFormat for ZipBackend {
                 continue;
             }
 
+            // Brotli is signalled in the archive via a `.br` filename
+            // suffix. The actual codec lives in the entry bytes (see
+            // `pre_compress_for_method`); the zip writer itself never tries
+            // to re-compress a Brotli entry because `to_zip_method`
+            // collapses Brotli to `Stored`.
+            let archive_name = if method == SupaCompressionMethod::Brotli {
+                format!("{name}.br")
+            } else {
+                name.clone()
+            };
             zip_writer
-                .start_file(&name, file_options)
+                .start_file(&archive_name, file_options)
                 .map_err(|e| ArchiverError::Io(e.into()))?;
+
+            // Brotli needs the whole payload in memory so we can compress
+            // it before handing it to the zip writer. For Deflate / Zstd /
+            // Store we stream straight from the source file.
+            if method == SupaCompressionMethod::Brotli {
+                let mut file = std::fs::File::open(entry_path).map_err(ArchiverError::Io)?;
+                let mut data = Vec::new();
+                file.read_to_end(&mut data).map_err(ArchiverError::Io)?;
+                let (compressed, _) = pre_compress_for_method(method, &data)?;
+                zip_writer
+                    .write_all(&compressed)
+                    .map_err(ArchiverError::Io)?;
+                progress.set_progress(compressed.len() as u64, 0);
+                continue;
+            }
 
             let mut file = std::fs::File::open(entry_path).map_err(ArchiverError::Io)?;
 
@@ -501,6 +666,7 @@ mod tests {
         let opts = CreateOptions {
             compression_method: "deflate".to_string(),
             compression_level: None,
+            compression: SupaCompressionMethod::Deflate,
         };
         ZipBackend::new()
             .create(
@@ -534,6 +700,7 @@ mod tests {
         let opts = CreateOptions {
             compression_method: "deflate".to_string(),
             compression_level: None,
+            compression: SupaCompressionMethod::Deflate,
         };
         ZipBackend::new()
             .create(
@@ -584,6 +751,7 @@ mod tests {
         let opts = CreateOptions {
             compression_method: "deflate".to_string(),
             compression_level: None,
+            compression: SupaCompressionMethod::Deflate,
         };
         let file = std::fs::File::create(&archive).expect("create archive");
         let writer: Box<dyn WriteSeek> = Box::new(BufWriter::new(file));
@@ -655,6 +823,7 @@ mod tests {
             let opts = CreateOptions {
                 compression_method: method.to_string(),
                 compression_level: None,
+                compression: SupaCompressionMethod::from_legacy_str(method),
             };
             let file = std::fs::File::create(&archive).expect("create");
             let writer: Box<dyn WriteSeek> = Box::new(BufWriter::new(file));
@@ -714,6 +883,7 @@ mod tests {
                 &CreateOptions {
                     compression_method: "store".into(),
                     compression_level: None,
+                    compression: SupaCompressionMethod::Store,
                 },
                 None,
                 &NoOpProgress,
@@ -725,6 +895,7 @@ mod tests {
             max_archive_size: 1,
             max_entry_count: Limits::default().max_entry_count,
             max_entry_size: Limits::default().max_entry_size,
+            max_compression_ratio: Limits::default().max_compression_ratio,
         };
         let res = ZipBackend::new().list(
             Box::new(std::fs::File::open(&archive).expect("reopen")),
@@ -759,6 +930,7 @@ mod tests {
                 &CreateOptions {
                     compression_method: "store".into(),
                     compression_level: None,
+                    compression: SupaCompressionMethod::Store,
                 },
                 None,
                 &NoOpProgress,
@@ -770,6 +942,7 @@ mod tests {
             max_archive_size: Limits::default().max_archive_size,
             max_entry_count: 1,
             max_entry_size: Limits::default().max_entry_size,
+            max_compression_ratio: Limits::default().max_compression_ratio,
         };
         let res = ZipBackend::new().list(
             Box::new(std::fs::File::open(&archive).expect("reopen")),
@@ -803,6 +976,7 @@ mod tests {
                 &CreateOptions {
                     compression_method: "deflate".into(),
                     compression_level: None,
+                    compression: SupaCompressionMethod::Deflate,
                 },
                 Some("hunter22"),
                 &NoOpProgress,
@@ -848,6 +1022,7 @@ mod tests {
                 &CreateOptions {
                     compression_method: "deflate".into(),
                     compression_level: None,
+                    compression: SupaCompressionMethod::Deflate,
                 },
                 None,
                 &NoOpProgress,
@@ -888,6 +1063,7 @@ mod tests {
         let opts = CreateOptions {
             compression_method: "deflate".to_string(),
             compression_level: None,
+            compression: SupaCompressionMethod::Deflate,
         };
         ZipBackend::new()
             .create(

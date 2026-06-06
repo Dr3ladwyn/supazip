@@ -10,12 +10,27 @@ readme = "../../README.md"
 
 [dependencies]
 sevenz-rust = { version = "0.6", features = ["aes256"] }
-zip = { version = "2", features = ["chrono"] }
+# WS-B (m0.2.0): the zip crate 2.4 line ships native Zstandard compression
+# behind the `zstd` feature, so we enable that. Brotli is NOT exposed by
+# the zip crate, so we depend on the top-level `brotli` crate and SupaZip
+# stores Brotli-compressed bytes as a Stored entry with a `.br` suffix
+# (see `formats::zip`).
+zip = { version = "2.4", features = ["chrono", "zstd"] }
+brotli = "8"
 thiserror = "2"
 chrono = { version = "0.4", features = ["serde"] }
 tokio = { version = "1", features = ["fs", "io-util", "rt-multi-thread", "signal"] }
 log = "0.4"
 tracing = "0.1"
+# WS-B (m0.2.0): TAR / TAR.GZ / TAR.XZ backends. All three are pure-Rust,
+# MIT / Apache-2.0 licensed. `tar` is the streaming TAR reader/writer;
+# `flate2` defaults to the `miniz_oxide` Rust backend (no C dependency);
+# `lzma-rs` is the pure-Rust LZMA2 / XZ codec, which the decision log
+# (2026-06-06) preferred over the `xz2` C wrapper to keep the Windows /
+# Linux / macOS CI matrix simple.
+tar = "0.4"
+flate2 = "1"
+lzma-rs = "0.3"
 
 [dev-dependencies]
 tempfile = "3"

@@ -337,6 +337,7 @@ fn cmd_create(
     let options = CreateOptions {
         compression_method: compression.to_string(),
         compression_level: None,
+        compression: supazip_core::CompressionMethod::from_legacy_str(compression),
     };
     let shared = std::sync::Arc::new(std::sync::Mutex::new(
         std::io::Cursor::new(Vec::<u8>::new()),

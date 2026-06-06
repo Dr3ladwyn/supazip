@@ -7,6 +7,6 @@ pub use formats::{
     detect_format, get_backend, supported_extensions, SevenZBackend, ZipBackend, BACKENDS,
 };
 pub use traits::{
-    ArchiveEntry, ArchiveFormat, ChannelProgress, CreateOptions, Limits, NoOpProgress,
-    ProgressCallback, ProgressState, ProgressUpdate, WriteSeek,
+    ArchiveEntry, ArchiveFormat, ChannelProgress, CompressionMethod, CreateOptions, Limits,
+    NoOpProgress, ProgressCallback, ProgressState, ProgressUpdate, WriteSeek,
 };

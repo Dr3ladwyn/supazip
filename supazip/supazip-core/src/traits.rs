@@ -191,13 +191,97 @@ impl std::fmt::Debug for ArchiveEntry {
     }
 }
 
+/// Compression method requested for a `create` call.
+///
+/// Codec support matrix:
+///
+/// - [`CompressionMethod::Deflate`] — the classic ZIP default; supported
+///   everywhere.
+/// - [`CompressionMethod::Store`] — no compression; bytes are written
+///   verbatim. Zero-cost: `compressed_size == size` for every entry.
+/// - [`CompressionMethod::Zstd`] — Zstandard, fast dictionary-friendly
+///   codec. **ZIP-only** — written through the `zip` crate's `zstd`
+///   feature; ignored by 7z (7z uses LZMA2 internally).
+/// - [`CompressionMethod::Brotli`] — Brotli, high-ratio text codec.
+///   **ZIP-only** — the `zip` crate does not expose a Brotli codec, so
+///   SupaZip stores Brotli-compressed bytes as a `Stored` entry with a
+///   `.br` filename suffix and decompresses transparently on extract.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum CompressionMethod {
+    /// DEFLATE — the classic ZIP default. Also the `Default` variant;
+    /// preserves bit-for-bit behaviour with pre-WS-B SupaZip archives (and
+    /// is what every other PeaZip-style tool picks).
+    #[default]
+    Deflate,
+    /// Brotli — high-ratio text compression. ZIP-only, custom on-disk layout
+    /// (Stored entry with `.br` suffix, decompressed transparently).
+    Brotli,
+    /// Zstandard — fast dictionary-friendly codec. ZIP-only.
+    Zstd,
+    /// Store — no compression; the entry bytes are written verbatim.
+    Store,
+}
+
+impl CompressionMethod {
+    /// Stable string key for this codec, matching the historical
+    /// `compression_method: String` values the CLI / GUI used to write.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CompressionMethod::Deflate => "deflate",
+            CompressionMethod::Brotli => "brotli",
+            CompressionMethod::Zstd => "zstd",
+            CompressionMethod::Store => "store",
+        }
+    }
+
+    /// Map a free-form legacy key (whatever a CLI/GUI used to pass in
+    /// `compression_method: String`) onto a typed enum. Unknown values
+    /// collapse to `Deflate` so the engine never refuses to start a
+    /// create call just because of a typo in the legacy field.
+    pub fn from_legacy_str(s: &str) -> Self {
+        match s.to_ascii_lowercase().as_str() {
+            "deflate" | "deflated" => Self::Deflate,
+            "store" | "none" | "stored" => Self::Store,
+            "brotli" | "br" => Self::Brotli,
+            "zstd" | "zstandard" => Self::Zstd,
+            // "bzip2" and anything unrecognised fall back to Deflate; the
+            // ZIP crate does not enable a bzip2 feature in this workspace.
+            _ => Self::Deflate,
+        }
+    }
+}
+
 /// Tunables for a `create` call. `compression_method` is a free-form string
 /// keyed on the backend (`"deflate"`, `"store"`, `"bzip2"`, `"zstd"` for ZIP;
 /// ignored by 7z, which uses LZMA2 / AES-256 depending on password).
 /// `compression_level` is the 0..=9 level some backends expose.
+///
+/// The newer typed [`Self::compression`] field supersedes the legacy
+/// `compression_method` string. Backends that have been migrated read the
+/// typed field; the legacy string is preserved so that older call sites
+/// (and the GUI) keep working without any code change. New code should
+/// populate both fields to stay forward-compatible.
 pub struct CreateOptions {
+    /// Legacy free-form codec key. Kept for backward compatibility with
+    /// every caller that has not migrated to the typed enum yet.
     pub compression_method: String,
+    /// 0..=9 level for backends that expose one. `None` means "engine
+    /// default".
     pub compression_level: Option<u32>,
+    /// Typed compression codec. When set to anything other than the
+    /// default ([`CompressionMethod::Deflate`]) the ZIP backend uses it
+    /// over the legacy string. Defaults to `Deflate`.
+    pub compression: CompressionMethod,
+}
+
+impl Default for CreateOptions {
+    fn default() -> Self {
+        Self {
+            compression_method: CompressionMethod::default().as_str().to_string(),
+            compression_level: None,
+            compression: CompressionMethod::default(),
+        }
+    }
 }
 
 /// Resource limits applied to archive operations. Used to refuse zip-bomb-class

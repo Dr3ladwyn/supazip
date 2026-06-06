@@ -644,6 +644,7 @@ mod tests {
         let opts = CreateOptions {
             compression_method: "deflate".to_string(),
             compression_level: None,
+            compression: crate::traits::CompressionMethod::Deflate,
         };
         SevenZBackend::new()
             .create(
@@ -692,6 +693,7 @@ mod tests {
         let opts = CreateOptions {
             compression_method: "deflate".to_string(),
             compression_level: None,
+            compression: crate::traits::CompressionMethod::Deflate,
         };
         SevenZBackend::new()
             .create(
@@ -746,6 +748,7 @@ mod tests {
         let opts = CreateOptions {
             compression_method: "deflate".to_string(),
             compression_level: None,
+            compression: crate::traits::CompressionMethod::Deflate,
         };
         SevenZBackend::new()
             .create(
@@ -791,6 +794,7 @@ mod tests {
         let opts = CreateOptions {
             compression_method: "deflate".to_string(),
             compression_level: None,
+            compression: crate::traits::CompressionMethod::Deflate,
         };
         SevenZBackend::new()
             .create(
@@ -855,6 +859,7 @@ mod tests {
         let opts = CreateOptions {
             compression_method: "deflate".to_string(),
             compression_level: None,
+            compression: crate::traits::CompressionMethod::Deflate,
         };
         SevenZBackend::new()
             .create(
@@ -924,6 +929,7 @@ mod tests {
         let opts = CreateOptions {
             compression_method: "deflate".to_string(),
             compression_level: None,
+            compression: crate::traits::CompressionMethod::Deflate,
         };
         SevenZBackend::new()
             .create(
@@ -972,6 +978,7 @@ mod tests {
         let opts = CreateOptions {
             compression_method: "deflate".to_string(),
             compression_level: None,
+            compression: crate::traits::CompressionMethod::Deflate,
         };
         let entries = vec![src.join("zeros.bin")];
         SevenZBackend::new()
