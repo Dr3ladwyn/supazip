@@ -35,6 +35,9 @@ use std::sync::{
 // NoOpProgress - no-op implementation for CLI when progress is not needed
 // =============================================================================
 
+/// A [`ProgressCallback`] that ignores every progress event and never reports
+/// cancellation. Use it in tests and in code paths that do not need to drive a
+/// UI or surface cancellation.
 pub struct NoOpProgress;
 
 impl ProgressCallback for NoOpProgress {
@@ -49,6 +52,9 @@ impl ProgressCallback for NoOpProgress {
 // ProgressState - shared state for progress tracking across threads
 // =============================================================================
 
+/// Thread-safe shared progress handle. Cloneable via `Arc<ProgressState>`; the
+/// GUI uses it to mirror progress into the UI thread, and the CLI uses it
+/// through `Arc<ProgressState>` as a `ProgressCallback` implementation.
 pub struct ProgressState {
     pub current: AtomicU64,
     pub total: AtomicU64,
@@ -110,12 +116,19 @@ impl ProgressCallback for Arc<ProgressState> {
 // ChannelProgress - sends progress updates through a channel to the GUI
 // =============================================================================
 
+/// A single progress event. `current` and `total` are populated by
+/// `set_progress`; `message` is populated by `set_message`. The GUI translates
+/// this into egui progress bars and status line text.
 pub struct ProgressUpdate {
     pub current: u64,
     pub total: u64,
     pub message: String,
 }
 
+/// Sends each progress event through an mpsc channel. The GUI receiver reads
+/// the channel from the UI thread and repaints accordingly. Cancellation
+/// through this callback is intentionally unsupported; the GUI flips
+/// `ProgressState::cancel` instead.
 pub struct ChannelProgress {
     tx: Sender<ProgressUpdate>,
 }
@@ -148,6 +161,8 @@ impl ProgressCallback for ChannelProgress {
     }
 }
 
+/// Metadata for a single entry inside an archive. Returned by
+/// [`ArchiveFormat::list`] and accepted by the GUI's file-list view.
 pub struct ArchiveEntry {
     pub name: String,
     pub path: String,
@@ -176,6 +191,10 @@ impl std::fmt::Debug for ArchiveEntry {
     }
 }
 
+/// Tunables for a `create` call. `compression_method` is a free-form string
+/// keyed on the backend (`"deflate"`, `"store"`, `"bzip2"`, `"zstd"` for ZIP;
+/// ignored by 7z, which uses LZMA2 / AES-256 depending on password).
+/// `compression_level` is the 0..=9 level some backends expose.
 pub struct CreateOptions {
     pub compression_method: String,
     pub compression_level: Option<u32>,
@@ -183,6 +202,13 @@ pub struct CreateOptions {
 
 /// Resource limits applied to archive operations. Used to refuse zip-bomb-class
 /// inputs and to keep memory usage bounded.
+///
+/// # Defaults
+///
+/// [`Limits::default`] is 4 GiB archive, 1M entries, 1 GiB per entry. CLI / GUI
+/// callers can pick a tighter policy for the duration of one command, or use
+/// [`Limits::is_unrestricted`] to skip the per-byte checks entirely when
+/// they know the input is trusted.
 #[derive(Debug, Clone, Copy)]
 pub struct Limits {
     /// Maximum number of bytes the archive reader is allowed to produce. A
@@ -225,10 +251,39 @@ pub trait ProgressCallback: Send {
     fn is_cancelled(&self) -> bool;
 }
 
-/// Trait combining Write and Seek for object-safe trait objects
+/// Trait combining Write and Seek for object-safe trait objects. Implemented
+/// for every `T: Write + Seek` via the blanket impl below; the local name
+/// exists so the trait method can name a single supertrait without colliding
+/// with `std::io::Write` / `std::io::Seek`.
 pub trait WriteSeek: Write + Seek {}
 impl<T: Write + Seek> WriteSeek for T {}
 
+/// Engine surface for one archive format. Every method takes the resources it
+/// needs (a reader / writer / progress callback) and never reaches outside
+/// its arguments. The backends live in [`crate::formats`]; the trait is the
+/// contract.
+///
+/// # Errors
+///
+/// All methods return [`crate::error::ArchiverError`]. The `extract` and
+/// `list` paths can also return `ArchiverError::PasswordRequired` /
+/// `ArchiverError::WrongPassword` for encrypted entries whose password is
+/// missing or incorrect.
+///
+/// # Resource limits
+///
+/// The `limits: &Limits` parameter is the per-call ceiling. Backends refuse to
+/// read past `limits.max_archive_size`, refuse to enumerate more than
+/// `limits.max_entry_count` entries, and (where the format reports an entry's
+/// uncompressed size up front) refuse to write past `limits.max_entry_size`.
+///
+/// # Progress and cancellation
+///
+/// Long-running methods take a `progress: &dyn ProgressCallback`. Backends
+/// call `is_cancelled` between entries; returning `true` makes the backend
+/// short-circuit with `ArchiverError::Cancelled`. The CLI ships
+/// [`NoOpProgress`] and the GUI uses [`ChannelProgress`] or
+/// [`ProgressState`].
 pub trait ArchiveFormat: Send + Sync {
     fn name(&self) -> &'static str;
     fn extensions(&self) -> &[&str];

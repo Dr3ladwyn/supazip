@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  build:
+    name: Build & test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: [stable, 1.92.0]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install rustup + Rust ${{ matrix.toolchain }}
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ matrix.toolchain }}
+          components: clippy, rustfmt
+
+      - name: Cache cargo registry & target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ matrix.toolchain }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-${{ matrix.toolchain }}-
+            cargo-${{ runner.os }}-
+
+      - name: Build workspace
+        working-directory: supazip
+        run: cargo build --workspace --locked
+
+      - name: Test workspace
+        working-directory: supazip
+        run: cargo test --workspace --locked
+
+      - name: Clippy
+        working-directory: supazip
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Format check
+        working-directory: supazip
+        run: cargo fmt --all -- --check
+
+  gui:
+    name: GUI build (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install rustup + Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.92.0
+          components: clippy, rustfmt
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-gui-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+      - name: Build supazip-gui
+        working-directory: supazip
+        run: cargo build -p supazip-gui --locked

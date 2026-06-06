@@ -5,6 +5,9 @@ use thiserror::Error;
 /// match what `thiserror` needs to expose it as a chained `std::error::Error`.
 pub type BoxedError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
+/// Engine-level error type. Every public API on [`crate::traits::ArchiveFormat`]
+/// returns `Result<_, ArchiverError>`; the CLI and GUI print it via
+/// `Display` and use the `source()` chain for diagnostics.
 #[derive(Error, Debug)]
 pub enum ArchiverError {
     #[error("IO error: {0}")]
