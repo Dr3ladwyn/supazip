@@ -117,7 +117,7 @@ mod tests {
 
     #[test]
     fn invalid_archive_preserves_source() {
-        let io = std::io::Error::new(std::io::ErrorKind::Other, "boom");
+        let io = std::io::Error::other("boom");
         let e = ArchiverError::invalid_with_source("bad", io);
         assert!(e.to_string().contains("bad"));
         let s = e.source().expect("has source");

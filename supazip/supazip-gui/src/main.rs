@@ -25,8 +25,8 @@ use supazip_core::{formats, Limits};
 //      engine operation on a worker thread and receive progress events.
 //
 // The GUI thread owns `App`. Engine operations run on a `std::thread` that
-/// calls into `supazip-core` synchronously (the engine is not async-aware
-/// today) and pushes `EngineEvent` messages back through the channel.
+// calls into `supazip-core` synchronously (the engine is not async-aware
+// today) and pushes `EngineEvent` messages back through the channel.
 // ---------------------------------------------------------------------------
 
 pub struct App {
@@ -257,7 +257,11 @@ impl App {
         self.busy = true;
         self.status = format!("opening {}…", path.display());
         std::thread::spawn(move || {
-            let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("").to_string();
+            let ext = path
+                .extension()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
             let backend = match formats::get_backend(&ext) {
                 Some(b) => b,
                 None => {
@@ -303,11 +307,7 @@ impl App {
         let tx = self.engine_tx.clone();
         let cancel = self.cancel_flag.clone();
         self.busy = true;
-        self.status = format!(
-            "extracting {} to {}…",
-            archive.display(),
-            out.display()
-        );
+        self.status = format!("extracting {} to {}…", archive.display(), out.display());
         std::thread::spawn(move || {
             let ext = archive.extension().and_then(|s| s.to_str()).unwrap_or("");
             let backend = match formats::get_backend(ext) {
@@ -438,11 +438,8 @@ fn main() {
 
     let app = App::default();
     let native_options = eframe::NativeOptions::default();
-    if let Err(e) = eframe::run_native(
-        "SupaZip",
-        native_options,
-        Box::new(|_cc| Ok(Box::new(app))),
-    ) {
+    if let Err(e) = eframe::run_native("SupaZip", native_options, Box::new(|_cc| Ok(Box::new(app))))
+    {
         eprintln!("eframe failed: {e}");
         std::process::exit(1);
     }
