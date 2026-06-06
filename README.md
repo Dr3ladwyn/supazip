@@ -103,6 +103,16 @@ Three `ProgressCallback` implementations ship with the engine:
 > `zip 2.x` and the lockfile resolves to 2.4.2. The plan is the source of
 > truth for *intent*, not for actual dependency versions.
 
+## Design system
+
+The visual language is modern terminal-style, dark-only, monospace, dense, and calm — a single dark palette, monospaced typography (JetBrains Mono), 24 px row heights, and zero animation noise outside the indeterminate progress spinner. The full aesthetic, layout, motion, accessibility, and CLI-styling rules live in [`DESIGN.md`](DESIGN.md); this section is a pointer, not a copy.
+
+The single source of truth for every visual value is the design tokens file, mirrored in two formats for human readers and machine consumers: [`design/tokens.yaml`](design/tokens.yaml) (hand-written) and [`design/tokens.json`](design/tokens.json) (generated mirror). All palette colours are verified to meet WCAG 2.1 AA against the panel background (`#0E1116`), and a CI step keeps the two files in lockstep.
+
+User-facing strings are internationalised from day one: English (`en`) is the source language, Russian (`ru`) ships in parallel, and the table of keys lives in [`assets/i18n/`](assets/i18n/). No emoji are used anywhere in the product; the only "glyphs" are the terminal-friendly `─` rule line, the Braille-pattern spinner, and the SVG strokes of the brand mark.
+
+The brand identity is SVG, monoline, and theme-agnostic: [`assets/logo.svg`](assets/logo.svg) is the canonical wordmark-plus-mark lockup for headers and About dialogs, and [`assets/logo-mark.svg`](assets/logo-mark.svg) is the icon-only mark for toolbars, favicons, and small surfaces. Both use `currentColor` for stroke and fill so the dark palette is the only palette that needs shipping in v1.
+
 ## Quickstart
 
 ```bash
