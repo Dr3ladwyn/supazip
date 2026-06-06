@@ -1,12 +1,15 @@
 [package]
 name = "supazip-gui"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.92"
 description = "SupaZip desktop GUI: a PeaZip-style archive manager for 7z and ZIP, built on eframe/egui."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/your-org/supazip"
 readme = "../../README.md"
+# The GUI is the application front-end; only `supazip-core` and `supazip-cli`
+# are published to crates.io. Keep the GUI out of the registry.
+publish = false
 
 [dependencies]
 supazip-core = { path = "../supazip-core" }

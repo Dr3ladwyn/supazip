@@ -4,6 +4,20 @@ All notable changes to SupaZip are documented in this file. Versions follow
 [Semantic Versioning](https://semver.org/). The first published release is
 `0.1.0`.
 
+## [0.2.0] - 2026-06-06
+
+### Added
+- TAR, TAR.GZ and TAR.XZ backends (pure-Rust stack: `tar`, `flate2`,
+  `xz`).
+- Brotli and Zstandard compression methods for ZIP create.
+- `Limits::max_compression_ratio` (zip-bomb defence); enforced in 7z
+  extract.
+- cargo-fuzz harness skeleton (15 targets, 60s CI smoke).
+- `assets/i18n/de.toml` stub (third locale), plural-section format.
+- crates.io metadata: `keywords`, `categories`, `authors`, `description`
+  on `supazip-core` and `supazip-cli`; `publish = false` on
+  `supazip-gui`. `docs/publishing.md` documents the manual publish flow.
+
 ## [Unreleased]
 
 ### Added

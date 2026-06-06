@@ -1,12 +1,24 @@
 [package]
 name = "supazip-core"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.92"
-description = "SupaZip archive engine: shared 7z / ZIP read and write logic for CLI and GUI front-ends."
+description = "SupaZip archive engine: shared 7z, ZIP, TAR, TAR.GZ and TAR.XZ read and write logic for CLI and GUI front-ends."
 license = "MIT OR Apache-2.0"
+authors = ["SupaZip contributors"]
 repository = "https://github.com/your-org/supazip"
 readme = "../../README.md"
+keywords = ["archive", "7z", "zip", "tar", "compression"]
+categories = ["compression", "command-line-utilities", "filesystem"]
+exclude = [
+    "/.github",
+    "/.cursor",
+    "/scripts",
+    "/target",
+    "/Cargo.lock.bak",
+    "/.gitignore",
+    "**/*.rs.bk",
+]
 
 [dependencies]
 sevenz-rust = { version = "0.6", features = ["aes256"] }
