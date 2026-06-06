@@ -1,8 +1,8 @@
 use chrono::{DateTime, Utc};
 use std::io::{Cursor, Read, Write};
 use std::path::PathBuf;
-use zip::write::SimpleFileOptions;
-use zip::{CompressionMethod, DateTime as ZipDateTime, ZipArchive, ZipWriter};
+use zip::write::FileOptions;
+use zip::{AesMode, CompressionMethod, DateTime as ZipDateTime, ZipArchive, ZipWriter};
 
 use crate::error::ArchiverError;
 use crate::traits::{
@@ -90,7 +90,7 @@ impl ArchiveFormat for ZipBackend {
         let mut data = Vec::new();
         std::io::copy(&mut *reader, &mut data).map_err(ArchiverError::Io)?;
         let mut archive = ZipArchive::new(Cursor::new(data))
-            .map_err(|e| ArchiverError::InvalidArchive(e.to_string()))?;
+            .map_err(|e| ArchiverError::invalid_with_source("zip parse", e))?;
 
         if archive.len() > limits.max_entry_count {
             return Err(ArchiverError::TooLarge(format!(
@@ -111,11 +111,11 @@ impl ArchiveFormat for ZipBackend {
             let file = if let Some(pwd) = password {
                 archive
                     .by_index_decrypt(i, pwd.as_bytes())
-                    .map_err(|e| ArchiverError::InvalidArchive(e.to_string()))?
+                    .map_err(|e| ArchiverError::invalid_with_source("zip decrypt", e))?
             } else {
                 archive
                     .by_index(i)
-                    .map_err(|e| ArchiverError::InvalidArchive(e.to_string()))?
+                    .map_err(|e| ArchiverError::invalid_with_source("zip index", e))?
             };
 
             let name = file.name().to_string();
@@ -147,30 +147,25 @@ impl ArchiveFormat for ZipBackend {
     fn extract(
         &self,
         reader: Box<dyn Read>,
-        dest: Box<dyn WriteSeek>,
+        dest_dir: &std::path::Path,
         entries: &[&str],
         password: Option<&str>,
         progress: &dyn ProgressCallback,
         limits: &Limits,
     ) -> Result<(), ArchiverError> {
-        // We use `password` below via `by_index_decrypt` / `by_name_decrypt`; if
-        // the `if let Some(pwd) = password` is removed in the future, prefix
-        // the parameter with `_` to silence the warning.
         // zip 2.x requires `R: Read + Seek` for `ZipArchive::new`; the trait
         // gives us a non-seekable `Box<dyn Read>`, so we buffer and hand the
         // resulting `Cursor<Vec<u8>>` to the zip crate. The 7z backend streams
         // end-to-end; see `formats/sevenz.rs`.
         //
-        // `dest` is the writer handed to us by the trait. Extracted files are
-        // written to the current working directory using `enclosed_name`, which
-        // is the only behaviour the existing tests rely on. A future refactor
-        // will treat `dest` as a directory path or a tar stream and stop
-        // touching the filesystem directly.
+        // `dest_dir` is the directory the caller wants files under. Each
+        // entry's path is `enclosed_name()`-validated by the zip crate to
+        // defeat zip-slip, then joined onto `dest_dir` with `Path::join`.
         let mut reader = bounded_reader(reader, limits.max_archive_size)?;
         let mut data = Vec::new();
         std::io::copy(&mut *reader, &mut data).map_err(ArchiverError::Io)?;
         let mut archive = ZipArchive::new(Cursor::new(data))
-            .map_err(|e| ArchiverError::InvalidArchive(e.to_string()))?;
+            .map_err(|e| ArchiverError::invalid_with_source("zip parse", e))?;
         if archive.len() > limits.max_entry_count {
             return Err(ArchiverError::TooLarge(format!(
                 "archive contains {} entries (limit {})",
@@ -178,7 +173,8 @@ impl ArchiveFormat for ZipBackend {
                 limits.max_entry_count
             )));
         }
-        let _ = dest;
+
+        std::fs::create_dir_all(dest_dir).map_err(ArchiverError::Io)?;
 
         let total_entries = if entries.is_empty() {
             archive.len()
@@ -198,22 +194,24 @@ impl ArchiveFormat for ZipBackend {
                 let mut file = if let Some(pwd) = password {
                     archive
                         .by_index_decrypt(i, pwd.as_bytes())
-                        .map_err(|e| ArchiverError::InvalidArchive(e.to_string()))?
+                        .map_err(|e| ArchiverError::invalid_with_source("zip decrypt", e))?
                 } else {
                     archive
                         .by_index(i)
-                        .map_err(|e| ArchiverError::InvalidArchive(e.to_string()))?
+                        .map_err(|e| ArchiverError::invalid_with_source("zip index", e))?
                 };
 
                 let name = file.name().to_string();
                 progress.set_message(&name);
 
-                let outpath = match file.enclosed_name() {
+                let enclosed = match file.enclosed_name() {
                     Some(path) => path.to_owned(),
                     None => continue,
                 };
+                let outpath = dest_dir.join(enclosed);
 
                 if file.is_dir() {
+                    std::fs::create_dir_all(&outpath).map_err(ArchiverError::Io)?;
                     continue;
                 }
 
@@ -233,6 +231,12 @@ impl ArchiveFormat for ZipBackend {
                     let bytes_read = file.read(&mut buffer).map_err(ArchiverError::Io)?;
                     if bytes_read == 0 {
                         break;
+                    }
+                    if processed.saturating_add(bytes_read as u64) > limits.max_entry_size {
+                        return Err(ArchiverError::TooLarge(format!(
+                            "entry '{}' exceeds max_entry_size {}",
+                            name, limits.max_entry_size
+                        )));
                     }
                     outfile
                         .write_all(&buffer[..bytes_read])
@@ -253,19 +257,21 @@ impl ArchiveFormat for ZipBackend {
                 let mut file = if let Some(pwd) = password {
                     archive
                         .by_name_decrypt(entry_name, pwd.as_bytes())
-                        .map_err(|e| ArchiverError::InvalidArchive(e.to_string()))?
+                        .map_err(|e| ArchiverError::invalid_with_source("zip name decrypt", e))?
                 } else {
                     archive
                         .by_name(entry_name)
-                        .map_err(|e| ArchiverError::InvalidArchive(e.to_string()))?
+                        .map_err(|e| ArchiverError::invalid_with_source("zip name lookup", e))?
                 };
 
-                let outpath = match file.enclosed_name() {
+                let enclosed = match file.enclosed_name() {
                     Some(path) => path.to_owned(),
                     None => continue,
                 };
+                let outpath = dest_dir.join(enclosed);
 
                 if file.is_dir() {
+                    std::fs::create_dir_all(&outpath).map_err(ArchiverError::Io)?;
                     continue;
                 }
 
@@ -285,6 +291,12 @@ impl ArchiveFormat for ZipBackend {
                     let bytes_read = file.read(&mut buffer).map_err(ArchiverError::Io)?;
                     if bytes_read == 0 {
                         break;
+                    }
+                    if processed.saturating_add(bytes_read as u64) > limits.max_entry_size {
+                        return Err(ArchiverError::TooLarge(format!(
+                            "entry '{}' exceeds max_entry_size {}",
+                            entry_name, limits.max_entry_size
+                        )));
                     }
                     outfile
                         .write_all(&buffer[..bytes_read])
@@ -315,21 +327,24 @@ impl ArchiveFormat for ZipBackend {
                 limits.max_entry_count
             )));
         }
-        // TODO(zip): honour `password` for encrypted ZIP create. zip 2.x supports
-        // it via `SimpleFileOptions::with_password(...)`; the API requires an
-        // `EncryptionMethod` (AE2 is the default) and a per-file salt. Until that
-        // is implemented, the CLI's `create --password ...` for `.zip` outputs
-        // an unencrypted archive. The 7z path is implemented; see
-        // `formats/sevenz.rs`.
-        let _ = password;
+        // Build the per-file options. If a password is supplied, layer
+        // AES-256 encryption on top of the chosen compression method — this is
+        // the same AES vendor version (AE-2) that 7-Zip writes for .zip AES
+        // archives. zip 2.4.2 exposes this via `with_aes_encryption`. We use
+        // the generic `FileOptions<'_, ()>` rather than the `SimpleFileOptions`
+        // alias because the latter is `FileOptions<'static, ()>` and cannot
+        // hold a non-static password slice.
         let mut zip_writer = ZipWriter::new(writer);
 
         let compression = Self::conversion_method_to_zip(&options.compression_method);
         let compression_level = options.compression_level.map(|l| l as i64);
 
-        let file_options: SimpleFileOptions = SimpleFileOptions::default()
+        let mut file_options: FileOptions<'_, ()> = FileOptions::default()
             .compression_method(compression)
             .compression_level(compression_level);
+        if let Some(pwd) = password {
+            file_options = file_options.with_aes_encryption(AesMode::Aes256, pwd);
+        }
 
         for entry_path in entries {
             if progress.is_cancelled() {
@@ -394,7 +409,7 @@ impl ArchiveFormat for ZipBackend {
         let mut data = Vec::new();
         std::io::copy(&mut *reader, &mut data).map_err(ArchiverError::Io)?;
         let mut archive = ZipArchive::new(Cursor::new(data))
-            .map_err(|e| ArchiverError::InvalidArchive(e.to_string()))?;
+            .map_err(|e| ArchiverError::invalid_with_source("zip parse", e))?;
         if archive.len() > limits.max_entry_count {
             return Err(ArchiverError::TooLarge(format!(
                 "archive contains {} entries (limit {})",
@@ -411,11 +426,11 @@ impl ArchiveFormat for ZipBackend {
             let mut file = if let Some(pwd) = password {
                 archive
                     .by_index_decrypt(i, pwd.as_bytes())
-                    .map_err(|e| ArchiverError::InvalidArchive(e.to_string()))?
+                    .map_err(|e| ArchiverError::invalid_with_source("zip decrypt", e))?
             } else {
                 archive
                     .by_index(i)
-                    .map_err(|e| ArchiverError::InvalidArchive(e.to_string()))?
+                    .map_err(|e| ArchiverError::invalid_with_source("zip index", e))?
             };
 
             let name = file.name().to_string();
@@ -693,7 +708,7 @@ mod tests {
         // on the truncated input) or TooLarge (if the bounded reader surfaces
         // the cap explicitly); both signal "we did not process a full archive".
         match res {
-            Err(ArchiverError::InvalidArchive(_)) | Err(ArchiverError::TooLarge(_)) => {}
+            Err(ArchiverError::InvalidArchive { .. }) | Err(ArchiverError::TooLarge(_)) => {}
             other => panic!("expected InvalidArchive or TooLarge, got {other:?}"),
         }
     }
@@ -737,6 +752,96 @@ mod tests {
             matches!(res, Err(ArchiverError::TooLarge(_))),
             "expected TooLarge, got {res:?}"
         );
+    }
+
+    #[test]
+    fn create_with_password_marks_archive_encrypted() {
+        // zip 2.x AES-encrypted archives must round-trip: a fresh listing of
+        // the produced archive (with the password) should report every entry
+        // as `encrypted: true`.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let archive = tmp.path().join("enc.zip");
+        let src_dir = tmp.path().join("src");
+        std::fs::create_dir(&src_dir).expect("mkdir");
+        std::fs::write(src_dir.join("a.txt"), b"alpha\n").expect("write a");
+        std::fs::write(src_dir.join("b.txt"), b"bravo\n").expect("write b");
+
+        let file = std::fs::File::create(&archive).expect("create archive");
+        let writer: Box<dyn WriteSeek> = Box::new(BufWriter::new(file));
+        ZipBackend::new()
+            .create(
+                writer,
+                &[src_dir.join("a.txt"), src_dir.join("b.txt")],
+                &CreateOptions {
+                    compression_method: "deflate".into(),
+                    compression_level: None,
+                },
+                Some("hunter22"),
+                &NoOpProgress,
+                &Limits::default(),
+            )
+            .expect("create");
+
+        let listed = ZipBackend::new()
+            .list(
+                Box::new(std::fs::File::open(&archive).expect("reopen")),
+                Some("hunter22"),
+                &Limits::default(),
+            )
+            .expect("list with pwd");
+        assert_eq!(listed.len(), 2);
+        for entry in &listed {
+            assert!(entry.encrypted, "AES-encrypted entry should be flagged: {entry:?}");
+        }
+    }
+
+    #[test]
+    fn extract_writes_to_dest_dir() {
+        // End-to-end extract through the trait path: create a zip, extract to
+        // a destination directory, and assert the file content round-tripped.
+        //
+        // The zip backend uses the entry path's display form as the archive
+        // entry name, so for the extract step we want an entry name that the
+        // zip crate's `enclosed_name()` accepts. We pass a relative path
+        // (`hi.txt`) by feeding the file from the current working directory.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::env::set_current_dir(&tmp).expect("chdir tmp");
+        std::fs::write(tmp.path().join("hi.txt"), b"round-trip body\n").expect("write");
+        let archive = tmp.path().join("r.zip");
+        let file = std::fs::File::create(&archive).expect("create archive");
+        let writer: Box<dyn WriteSeek> = Box::new(BufWriter::new(file));
+        ZipBackend::new()
+            .create(
+                writer,
+                &[std::path::PathBuf::from("hi.txt")],
+                &CreateOptions {
+                    compression_method: "deflate".into(),
+                    compression_level: None,
+                },
+                None,
+                &NoOpProgress,
+                &Limits::default(),
+            )
+            .expect("create");
+
+        let dest = tmp.path().join("out");
+        ZipBackend::new()
+            .extract(
+                Box::new(std::fs::File::open(&archive).expect("reopen")),
+                &dest,
+                &[],
+                None,
+                &NoOpProgress,
+                &Limits::default(),
+            )
+            .expect("extract");
+
+        // The extracted tree should now have `out/hi.txt` (the relative entry
+        // name is joined under `dest`).
+        let extracted = dest.join("hi.txt");
+        let body = std::fs::read(&extracted)
+            .unwrap_or_else(|e| panic!("read {}: {e}", extracted.display()));
+        assert_eq!(body, b"round-trip body\n");
     }
 
     #[test]

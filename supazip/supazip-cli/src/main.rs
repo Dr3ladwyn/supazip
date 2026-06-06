@@ -1,7 +1,7 @@
 //! SupaZip CLI — list / extract / create / test, backed by `supazip-core`.
 
 use std::fs::File;
-use std::io::{BufWriter, Read, Write};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -202,20 +202,29 @@ fn resolve_backend(
         if let Some(backend) = formats::get_backend(ext) {
             return Ok(backend);
         }
-        return Err(ArchiverError::UnsupportedFormat(ext.to_string()));
+        return Err(ArchiverError::UnsupportedFormat {
+            message: ext.to_string(),
+            source: None,
+        });
     }
 
     let ext = archive
         .extension()
         .and_then(|s| s.to_str())
         .ok_or_else(|| {
-            ArchiverError::UnsupportedFormat(format!(
-                "cannot detect format from '{}' (no extension); pass --format",
-                archive.display()
-            ))
+            ArchiverError::UnsupportedFormat {
+                message: format!(
+                    "cannot detect format from '{}' (no extension); pass --format",
+                    archive.display()
+                ),
+                source: None,
+            }
         })?;
 
-    formats::get_backend(ext).ok_or_else(|| ArchiverError::UnsupportedFormat(ext.to_string()))
+    formats::get_backend(ext).ok_or_else(|| ArchiverError::UnsupportedFormat {
+        message: ext.to_string(),
+        source: None,
+    })
 }
 
 // -----------------------------------------------------------------------------
@@ -230,7 +239,7 @@ fn cmd_list(
 ) -> Result<(), ArchiverError> {
     tracing::info!(archive = %archive.display(), backend = backend.name(), "list");
     let file = File::open(archive)?;
-    let entries = backend.list(Box::new(BufReader::new(file)), password, limits)?;
+    let entries = backend.list(Box::new(buf_reader(file)), password, limits)?;
 
     // Plain-text table: name, size, compressed, encrypted.
     println!(
@@ -258,33 +267,16 @@ fn cmd_extract(
     limits: &Limits,
 ) -> Result<(), ArchiverError> {
     tracing::info!(archive = %archive.display(), out = %out.display(), backend = backend.name(), "extract");
-    std::fs::create_dir_all(out)?;
-
-    // The core's extract writes to the current working directory using
-    // `enclosed_name`. We emulate "out" by chdir-ing for the duration of the
-    // call. That keeps the existing core behaviour while honouring --out at
-    // the CLI level.
-    let prev_cwd = std::env::current_dir().ok();
-    std::env::set_current_dir(out).map_err(ArchiverError::Io)?;
-
-    let result = (|| -> Result<(), ArchiverError> {
-        let file = File::open(archive)?;
-        let dest: Box<dyn supazip_core::traits::WriteSeek> = Box::new(NullDest::new());
-        let entry_refs: Vec<&str> = entries.iter().map(String::as_str).collect();
-        backend.extract(
-            Box::new(BufReader::new(file)),
-            dest,
-            &entry_refs,
-            password,
-            &StderrProgress,
-            limits,
-        )
-    })();
-
-    if let Some(prev) = prev_cwd {
-        let _ = std::env::set_current_dir(&prev);
-    }
-    result?;
+    let file = File::open(archive)?;
+    let entry_refs: Vec<&str> = entries.iter().map(String::as_str).collect();
+    backend.extract(
+        Box::new(buf_reader(file)),
+        out,
+        &entry_refs,
+        password,
+        &StderrProgress,
+        limits,
+    )?;
     println!("extracted to {}", out.display());
     Ok(())
 }
@@ -297,13 +289,43 @@ fn cmd_create(
     limits: &Limits,
 ) -> Result<(), ArchiverError> {
     tracing::info!(archive = %archive.display(), backend = backend.name(), entries = files.len(), "create");
-    let out_file = File::create(archive)?;
-    let writer: Box<dyn supazip_core::traits::WriteSeek> = Box::new(BufWriter::new(out_file));
+    // Atomic create: write to a sibling tempfile in the same directory,
+    // fsync-equivalent (BufWriter on drop), then rename into place. This
+    // ensures a partially-written archive can never replace a previous good
+    // copy at the target path.
+    let parent = archive.parent().unwrap_or_else(|| Path::new("."));
+    std::fs::create_dir_all(parent).map_err(ArchiverError::Io)?;
+    // Atomic create: drive the backend into a `Vec<u8>`-backed sink, then
+    // write the resulting bytes through a `NamedTempFile` in the same
+    // directory and `persist` (rename) over the target. The trait method
+    // consumes a `Box<dyn WriteSeek + 'static>`, so the sink must own its
+    // state; we box a `SharedVecSink` (which holds an `Arc<Mutex<Cursor>>`)
+    // and recover the bytes via a side channel.
+    let parent = archive.parent().unwrap_or_else(|| Path::new("."));
+    std::fs::create_dir_all(parent).map_err(ArchiverError::Io)?;
     let options = CreateOptions {
         compression_method: "deflate".to_string(),
         compression_level: None,
     };
-    backend.create(writer, files, &options, password, &StderrProgress, limits)?;
+    let shared = std::sync::Arc::new(std::sync::Mutex::new(std::io::Cursor::new(Vec::<u8>::new())));
+    {
+        let writer: Box<dyn supazip_core::traits::WriteSeek> =
+            Box::new(SharedVecSink::new(shared.clone()));
+        backend.create(writer, files, &options, password, &StderrProgress, limits)?;
+    }
+    let bytes = std::sync::Arc::try_unwrap(shared)
+        .map_err(|_| {
+            ArchiverError::invalid("atomic create: leaked SharedVecSink clones")
+        })?
+        .into_inner()
+        .map_err(|_| ArchiverError::invalid("atomic create: poisoned SharedVecSink"))?
+        .into_inner();
+    let mut tmp = tempfile::NamedTempFile::new_in(parent).map_err(ArchiverError::Io)?;
+    std::io::Write::write_all(tmp.as_file_mut(), &bytes).map_err(ArchiverError::Io)?;
+    tmp.as_file().sync_all().map_err(ArchiverError::Io)?;
+    tmp.persist(archive).map_err(|e| {
+        ArchiverError::invalid_with_source("atomic create: persist failed", e.error)
+    })?;
     println!("created {} ({} entries)", archive.display(), files.len());
     Ok(())
 }
@@ -316,12 +338,12 @@ fn cmd_test(
 ) -> Result<(), ArchiverError> {
     tracing::info!(archive = %archive.display(), backend = backend.name(), "test");
     let file = File::open(archive)?;
-    let ok = backend.test(Box::new(BufReader::new(file)), password, &StderrProgress, limits)?;
+    let ok = backend.test(Box::new(buf_reader(file)), password, &StderrProgress, limits)?;
     if ok {
         println!("OK: {}", archive.display());
         Ok(())
     } else {
-        Err(ArchiverError::InvalidArchive(format!(
+        Err(ArchiverError::invalid(format!(
             "integrity check failed for {}",
             archive.display()
         )))
@@ -334,43 +356,44 @@ fn cmd_test(
 
 /// 64 KiB buffer wrapper used to give every read to the core a larger granularity
 /// than 8 KiB. Cheap; doesn't change semantics.
-struct BufReader<R: Read> {
-    inner: std::io::BufReader<R>,
+fn buf_reader<R: Read>(r: R) -> std::io::BufReader<R> {
+    std::io::BufReader::with_capacity(64 * 1024, r)
 }
-impl<R: Read> BufReader<R> {
-    fn new(r: R) -> Self {
-        Self {
-            inner: std::io::BufReader::with_capacity(64 * 1024, r),
-        }
-    }
+
+/// `Write + Seek` implementation that forwards every operation to a shared
+/// `Cursor<Vec<u8>>`. Used by `cmd_create` to capture the bytes the backend
+/// produced so we can write them atomically through a temp file. The 7z
+/// writer seeks back to patch the header after streaming the payload, so the
+/// sink must honour `Seek` properly; that is why the inner type is
+/// `Cursor<Vec<u8>>` and not just a `Vec`.
+struct SharedVecSink {
+    shared: std::sync::Arc<std::sync::Mutex<std::io::Cursor<Vec<u8>>>>,
 }
-impl<R: Read> Read for BufReader<R> {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        self.inner.read(buf)
+
+impl SharedVecSink {
+    fn new(shared: std::sync::Arc<std::sync::Mutex<std::io::Cursor<Vec<u8>>>>) -> Self {
+        Self { shared }
     }
 }
 
-/// No-op `Write + Seek` used to satisfy the trait's `Box<dyn WriteSeek>` slot
-/// for `extract`. The core's zip/sevenz backends currently use `enclosed_name`
-/// and write to the filesystem; this sink exists purely to make the call
-/// type-check.
-struct NullDest(std::io::Cursor<Vec<u8>>);
-impl NullDest {
-    fn new() -> Self {
-        Self(std::io::Cursor::new(Vec::new()))
-    }
-}
-impl Write for NullDest {
+impl std::io::Write for SharedVecSink {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        Ok(buf.len())
+        let mut c = self.shared.lock().map_err(|e| {
+            std::io::Error::new(std::io::ErrorKind::Other, format!("mutex poisoned: {e}"))
+        })?;
+        c.write(buf)
     }
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
 }
-impl std::io::Seek for NullDest {
+
+impl std::io::Seek for SharedVecSink {
     fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
-        self.0.seek(pos)
+        let mut c = self.shared.lock().map_err(|e| {
+            std::io::Error::new(std::io::ErrorKind::Other, format!("mutex poisoned: {e}"))
+        })?;
+        c.seek(pos)
     }
 }
 

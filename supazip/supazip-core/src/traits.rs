@@ -243,7 +243,7 @@ pub trait ArchiveFormat: Send + Sync {
     fn extract(
         &self,
         reader: Box<dyn Read>,
-        dest: Box<dyn WriteSeek>,
+        dest_dir: &std::path::Path,
         entries: &[&str],
         password: Option<&str>,
         progress: &dyn ProgressCallback,

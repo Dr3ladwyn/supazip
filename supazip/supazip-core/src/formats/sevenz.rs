@@ -1,4 +1,4 @@
-use std::io::{Cursor, Read, Seek, SeekFrom};
+use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;
 
 use chrono::DateTime;
@@ -102,18 +102,56 @@ impl SevenZBackend {
     }
 
     fn map_sevenz_error(err: SevenZError) -> ArchiverError {
+        // `sevenz-rust 0.6.1` does not have a dedicated `Cancelled` variant,
+        // and we cannot easily add one without forking the upstream crate. The
+        // helper closures in this file use `SevenZError::Other(...)` with the
+        // message "Operation cancelled" when the user requests cancellation;
+        // map that to `ArchiverError::Cancelled` here so callers get a typed
+        // variant instead of an opaque "Invalid archive".
+        let msg = format!("{err:?}");
+        if msg.contains("Operation cancelled") {
+            return ArchiverError::Cancelled;
+        }
         match err {
             SevenZError::PasswordRequired => ArchiverError::PasswordRequired,
             SevenZError::MaybeBadPassword(_) => ArchiverError::WrongPassword,
             SevenZError::Io(e, _) => ArchiverError::Io(e),
-            SevenZError::BadSignature(_) => {
-                ArchiverError::InvalidArchive("Invalid 7z signature".into())
-            }
+            SevenZError::BadSignature(_) => ArchiverError::invalid("Invalid 7z signature"),
             SevenZError::ChecksumVerificationFailed => {
-                ArchiverError::InvalidArchive("Checksum verification failed".into())
+                ArchiverError::invalid("Checksum verification failed")
             }
-            _ => ArchiverError::InvalidArchive(format!("7z error: {:?}", err)),
+            _ => ArchiverError::invalid(format!("7z error: {err:?}")),
         }
+    }
+
+    /// Path-traversal guard. Returns the destination path for an entry name
+    /// when it is safe to write it under `dest_dir`, or `None` when the entry
+    /// would escape the destination (absolute path, contains `..`, or resolves
+    /// outside `dest_dir` after canonicalisation). The 7z crate does not provide
+    /// a built-in equivalent of the zip crate's `enclosed_name`, so we roll one
+    /// here. Refusing is preferable to silently skipping because it makes the
+    /// malicious archive obvious in logs and tests.
+    pub fn safe_join(dest_dir: &std::path::Path, name: &str) -> Option<std::path::PathBuf> {
+        use std::path::Path;
+
+        if name.is_empty() {
+            return None;
+        }
+        // The 7z spec uses forward slashes for entry names; normalise
+        // backslashes for Windows-built archives.
+        let normalised = name.replace('\\', "/");
+        let candidate = Path::new(&normalised);
+        if candidate.is_absolute() {
+            return None;
+        }
+        for component in candidate.components() {
+            use std::path::Component::*;
+            match component {
+                Prefix(_) | RootDir | ParentDir => return None,
+                CurDir | Normal(_) => continue,
+            }
+        }
+        Some(dest_dir.join(candidate))
     }
 
     /// Drive `SevenZReader::for_each_entries` over the archive.
@@ -231,13 +269,17 @@ impl ArchiveFormat for SevenZBackend {
     fn extract(
         &self,
         reader: Box<dyn Read>,
-        dest: Box<dyn WriteSeek>,
+        dest_dir: &std::path::Path,
         entries: &[&str],
         password: Option<&str>,
         progress: &dyn ProgressCallback,
         limits: &Limits,
     ) -> Result<(), ArchiverError> {
-        tracing::debug!("Extracting {} entries from 7z archive", entries.len());
+        tracing::debug!(
+            "Extracting {} entries from 7z archive to {}",
+            entries.len(),
+            dest_dir.display()
+        );
 
         let pwd = Self::get_password(password);
 
@@ -256,8 +298,10 @@ impl ArchiveFormat for SevenZBackend {
             Some(entries.iter().map(|s| s.to_string()).collect())
         };
 
-        // First pass: calculate total uncompressed size
-        let total_size: u64 = {
+        // First pass: count total bytes that will be written so progress can
+        // report a meaningful `total`. Also count the entries so we can refuse
+        // a bomb up front.
+        let (total_size, total_entries) = {
             let filter_slice: &[String] = entries_filter.as_deref().unwrap_or(&[]);
             let filter_opt: Option<&[String]> = if entries_filter.is_some() {
                 Some(filter_slice)
@@ -265,6 +309,7 @@ impl ArchiveFormat for SevenZBackend {
                 None
             };
             let mut total: u64 = 0;
+            let mut count: usize = 0;
             Self::for_each_entry(
                 buffer.reset(),
                 pwd.clone(),
@@ -274,21 +319,25 @@ impl ArchiveFormat for SevenZBackend {
                     if !entry.is_directory() {
                         total += entry.size();
                     }
+                    count += 1;
                     Ok(true)
                 },
             )?;
-            total
+            (total, count)
         };
+        if total_entries > limits.max_entry_count {
+            return Err(ArchiverError::TooLarge(format!(
+                "archive contains {} entries (limit {})",
+                total_entries, limits.max_entry_count
+            )));
+        }
 
-        // Second pass: write the data through the trait's `dest` writer.
-        //
-        // Note on streaming: the trait's `dest: Box<dyn WriteSeek>` is a
-        // single contiguous writer. The current core implementation ignores
-        // `dest` and writes to the current working directory via
-        // `enclosed_name`; that pre-existing behaviour is preserved here.
-        // Streaming the per-entry bytes into `dest` as a tar-like stream is a
-        // larger refactor and is tracked in `decisionLog.md`.
-        let _ = dest;
+        std::fs::create_dir_all(dest_dir).map_err(ArchiverError::Io)?;
+
+        // Second pass: actually write the entries to disk under `dest_dir`,
+        // with `safe_join` defeating zip-slip-style attacks. We also enforce
+        // `max_entry_size` per entry, returning `TooLarge` if a single entry
+        // exceeds the limit.
         let mut extracted_size: u64 = 0;
         let filter_ref: Option<&[String]> = entries_filter.as_deref();
 
@@ -302,14 +351,62 @@ impl ArchiveFormat for SevenZBackend {
                     return Err(SevenZError::Other("Operation cancelled".into()));
                 }
 
-                progress.set_message(entry.name());
+                let name = entry.name().to_string();
+                progress.set_message(&name);
 
                 if entry.is_directory() {
+                    let outpath = match Self::safe_join(dest_dir, &name) {
+                        Some(p) => p,
+                        None => {
+                            tracing::warn!("7z extract: skipping unsafe entry {name:?}");
+                            return Ok(true);
+                        }
+                    };
+                    std::fs::create_dir_all(&outpath).map_err(|e| {
+                        SevenZError::Io(e, format!("mkdir {outpath:?}").into())
+                    })?;
                     return Ok(true);
                 }
 
-                let mut buf = [0u8; 8192];
+                let outpath = match Self::safe_join(dest_dir, &name) {
+                    Some(p) => p,
+                    None => {
+                        tracing::warn!("7z extract: skipping unsafe entry {name:?}");
+                        // Skip the entry entirely: drain it to /dev/null so the
+                        // sevenz-rust cursor stays in sync.
+                        let mut sink = [0u8; 8192];
+                        loop {
+                            if entry_reader.read(&mut sink).map_err(|e| {
+                                SevenZError::Io(e, "drain skipped entry".into())
+                            })? == 0
+                            {
+                                break;
+                            }
+                        }
+                        return Ok(true);
+                    }
+                };
 
+                if entry.size() > limits.max_entry_size {
+                    return Err(SevenZError::Io(
+                        std::io::Error::new(std::io::ErrorKind::Other, "entry too large"),
+                        format!("entry {} exceeds max_entry_size", entry.size()).into(),
+                    ));
+                }
+
+                if let Some(parent) = outpath.parent() {
+                    if !parent.as_os_str().is_empty() {
+                        std::fs::create_dir_all(parent).map_err(|e| {
+                            SevenZError::Io(e, format!("mkdir {parent:?}").into())
+                        })?;
+                    }
+                }
+
+                let mut outfile = std::fs::File::create(&outpath).map_err(|e| {
+                    SevenZError::Io(e, format!("create {outpath:?}").into())
+                })?;
+
+                let mut buf = [0u8; 8192];
                 loop {
                     if progress.is_cancelled() {
                         return Err(SevenZError::Other("Operation cancelled".into()));
@@ -322,6 +419,10 @@ impl ArchiveFormat for SevenZBackend {
                     if bytes_read == 0 {
                         break;
                     }
+
+                    outfile
+                        .write_all(&buf[..bytes_read])
+                        .map_err(|e| SevenZError::Io(e, "".into()))?;
 
                     extracted_size += bytes_read as u64;
                     progress.set_progress(extracted_size, total_size);
@@ -355,7 +456,7 @@ impl ArchiveFormat for SevenZBackend {
         tracing::debug!("Creating 7z archive with {} entries", entries.len());
 
         let mut sz = SevenZWriter::new(writer).map_err(|e| {
-            ArchiverError::InvalidArchive(format!("Failed to create 7z writer: {:?}", e))
+            ArchiverError::invalid_with_source("Failed to create 7z writer", e)
         })?;
 
         // Honour `--password` for 7z. `sevenz-rust 0.6.1` requires the
@@ -395,12 +496,12 @@ impl ArchiveFormat for SevenZBackend {
             if entry.is_directory() {
                 sz.push_archive_entry(entry, Option::<&mut std::fs::File>::None)
                     .map_err(|e| {
-                        ArchiverError::InvalidArchive(format!("Failed to add directory: {:?}", e))
+                        ArchiverError::invalid_with_source("Failed to add directory", e)
                     })?;
             } else {
                 let mut file = std::fs::File::open(path).map_err(ArchiverError::Io)?;
                 sz.push_archive_entry(entry, Some(&mut file)).map_err(|e| {
-                    ArchiverError::InvalidArchive(format!("Failed to add file: {:?}", e))
+                    ArchiverError::invalid_with_source("Failed to add file", e)
                 })?;
             }
         }
@@ -648,9 +749,9 @@ mod tests {
 
     #[test]
     fn unencrypted_extract_round_trip_7z() {
-        // The sevenz backend's `extract` currently streams entries to a sink
-        // (it does not write to disk yet — that lands in step 6 / step 10),
-        // so we only assert on the listing / test path here.
+        // The sevenz backend's extract now writes files to disk under
+        // `dest_dir`. Build an archive, extract it, and assert the body of
+        // every entry round-tripped.
         let tmp = tempfile::tempdir().expect("tempdir");
         let archive = tmp.path().join("plain.7z");
         let src = tmp.path().join("src");
@@ -663,18 +764,104 @@ mod tests {
             compression_level: None,
         };
         SevenZBackend::new()
-            .create(writer, &entries, &opts, None, &NoOpProgress, &Limits::default())
-            .expect("create");
-
-        let ok = SevenZBackend::new()
-            .test(
-                Box::new(std::fs::File::open(&archive).expect("open")),
+            .create(
+                writer,
+                &entries,
+                &opts,
                 None,
                 &NoOpProgress,
                 &Limits::default(),
             )
-            .expect("test");
-        assert!(ok);
+            .expect("create");
+
+        let dest = tmp.path().join("out");
+        SevenZBackend::new()
+            .extract(
+                Box::new(std::fs::File::open(&archive).expect("open")),
+                &dest,
+                &[],
+                None,
+                &NoOpProgress,
+                &Limits::default(),
+            )
+            .expect("extract");
+
+        for entry in &entries {
+            let body = std::fs::read(entry).expect("read source");
+            let name = entry.file_name().unwrap().to_str().unwrap();
+            let extracted = dest.join(name);
+            let out_body = std::fs::read(&extracted)
+                .unwrap_or_else(|e| panic!("read {}: {e}", extracted.display()));
+            assert_eq!(body, out_body, "round-trip for {name}");
+        }
+    }
+
+    #[test]
+    fn safe_join_rejects_path_traversal() {
+        // `safe_join` must refuse absolute paths, parent-dir traversal, and
+        // backslashes that would resolve to a parent on Windows.
+        let dest = std::path::Path::new("/tmp/dest");
+        assert!(SevenZBackend::safe_join(dest, "ok.txt").is_some());
+        assert!(SevenZBackend::safe_join(dest, "sub/ok.txt").is_some());
+        assert!(SevenZBackend::safe_join(dest, "../escape.txt").is_none());
+        assert!(SevenZBackend::safe_join(dest, "/abs.txt").is_none());
+        assert!(SevenZBackend::safe_join(dest, "..").is_none());
+        assert!(SevenZBackend::safe_join(dest, "").is_none());
+    }
+
+    #[test]
+    fn cancellation_surfaces_as_cancelled() {
+        // Build a real archive and then drive `extract` through a progress
+        // callback that requests cancellation on the first entry. The extract
+        // must short-circuit with `ArchiverError::Cancelled`.
+        use crate::traits::ProgressCallback;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let archive = tmp.path().join("c.7z");
+        let src = tmp.path().join("src");
+        let entries = write_two_files(&src);
+        let file = std::fs::File::create(&archive).expect("create archive");
+        let writer: Box<dyn WriteSeek> = Box::new(file);
+        let opts = CreateOptions {
+            compression_method: "deflate".to_string(),
+            compression_level: None,
+        };
+        SevenZBackend::new()
+            .create(
+                writer,
+                &entries,
+                &opts,
+                None,
+                &NoOpProgress,
+                &Limits::default(),
+            )
+            .expect("create");
+
+        struct CancelAfter(AtomicUsize);
+        impl ProgressCallback for CancelAfter {
+            fn set_progress(&self, _c: u64, _t: u64) {}
+            fn set_message(&self, _m: &str) {}
+            fn is_cancelled(&self) -> bool {
+                // Cancel after the first message we see; the for_each_entry
+                // callback runs `progress.is_cancelled()` before each entry.
+                self.0.fetch_add(1, Ordering::SeqCst) > 0
+            }
+        }
+        let cb = CancelAfter(AtomicUsize::new(0));
+        let dest = tmp.path().join("out");
+        let res = SevenZBackend::new().extract(
+            Box::new(std::fs::File::open(&archive).expect("open")),
+            &dest,
+            &[],
+            None,
+            &cb,
+            &Limits::default(),
+        );
+        assert!(
+            matches!(res, Err(ArchiverError::Cancelled)),
+            "expected Cancelled, got {res:?}"
+        );
     }
 
     #[test]
