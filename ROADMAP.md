@@ -183,16 +183,31 @@ gantt
 - Mobile targets (iOS / Android).
 - Plugin system v1 (only reconsidered after 1.0 if real demand surfaces).
 
-## Open questions
+## Decisions log
 
-These five questions must be resolved before work on 0.2.0 begins; each will
-be tracked as a separate `AskQuestion` session.
+The five open questions that gated work on 0.2.0 were resolved on 2026-06-06
+and the answers are recorded in `memory-bank/decisionLog.md`. The summary:
 
-1. **Async-trait vs sync-only** — keep backends synchronous and add async later?
-2. **Light theme in 0.5 or 1.1?** — the v1 design system is dark-only; revisit at 0.5.
-3. **Tar backends** — implement via `tar` + `flate2` + `xz2`, or switch to `async-tar`? Sync-only for 0.2.
-4. **Third localisation** — de, fr, zh or ja; which has the highest priority?
-5. **Self-update** — include in 1.0 or treat it as attack surface and disable?
+1. **Async-trait for backends** — **deferred past 1.0**. Backends stay synchronous
+   for 0.2 → 1.0; the question is re-opened only if real demand (network
+   archives, very large streaming inputs) surfaces. Native AFIT is the
+   preferred path when it lands.
+2. **Light theme** — **deferred to 1.1**. The 1.0 design system stays dark-only
+   as in `DESIGN.md`; light theme work begins after the 1.0 release based on
+   user feedback.
+3. **Tar backend stack** — **pure-Rust**: `tar` + `flate2` + `xz` (all
+   MIT/Apache-2.0, no C dependency on Windows). This keeps the CI matrix
+   simple and the binary self-contained.
+4. **Third localisation** — **de** (German). It exercises a two-form plural
+   rule similar to Russian, validates the i18n pipeline at three locales, and
+   is high-value for the EU open-source audience.
+5. **Self-update in CLI** — **deferred to 1.1**. 1.0 ships without
+   `supazip update`; users update through their package manager
+   (Homebrew, winget, scoop, apt, AUR). This removes the only self-modifying
+   attack surface in the CLI binary.
+
+These decisions are reflected in `docs/milestones/m0.2.0-engine-solid.md` and
+in the dependency list of the 0.2.0 release-criteria checklist above.
 
 ## Update process
 
