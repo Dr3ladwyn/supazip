@@ -205,11 +205,11 @@ pub struct CreateOptions {
 ///
 /// # Defaults
 ///
-/// [`Limits::default`] is 4 GiB archive, 1M entries, 1 GiB per entry. CLI / GUI
-/// callers can pick a tighter policy for the duration of one command, or use
-/// [`Limits::is_unrestricted`] to skip the per-byte checks entirely when
-/// they know the input is trusted.
-#[derive(Debug, Clone, Copy)]
+/// [`Limits::default`] is 4 GiB archive, 1M entries, 1 GiB per entry, and a
+/// 100× compression ratio cap. CLI / GUI callers can pick a tighter policy
+/// for the duration of one command, or use [`Limits::is_unrestricted`] to
+/// skip the per-byte checks entirely when they know the input is trusted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Limits {
     /// Maximum number of bytes the archive reader is allowed to produce. A
     /// `list`, `test`, or `extract` call that would consume more than this
@@ -221,6 +221,10 @@ pub struct Limits {
     /// at metadata time where possible; if the backend cannot determine size up
     /// front, the per-byte progress check enforces it during streaming.
     pub max_entry_size: u64,
+    /// Reject entry where `compressed_size * ratio < uncompressed_size` to
+    /// defeat zip-bomb / quine-like archives. Set to 0 to disable the check
+    /// (NOT recommended).
+    pub max_compression_ratio: u32,
 }
 
 impl Default for Limits {
@@ -231,11 +235,23 @@ impl Default for Limits {
             max_archive_size: 4 * 1024 * 1024 * 1024, // 4 GiB
             max_entry_count: 1_000_000,
             max_entry_size: 1024 * 1024 * 1024, // 1 GiB per entry
+            max_compression_ratio: 100,         // 100×
         }
     }
 }
 
 impl Limits {
+    /// `pub const fn new` — all-defaults. Mirrors [`Limits::default`] but is
+    /// callable in `const` contexts (default impls are not `const fn`).
+    pub const fn new() -> Self {
+        Self {
+            max_archive_size: 4 * 1024 * 1024 * 1024, // 4 GiB
+            max_entry_count: 1_000_000,
+            max_entry_size: 1024 * 1024 * 1024, // 1 GiB per entry
+            max_compression_ratio: 100,         // 100×
+        }
+    }
+
     /// `true` when the limits describe an unrestricted run. Used by the backends
     /// to skip the per-byte read checks when no limit is in force.
     pub fn is_unrestricted(&self) -> bool {
@@ -409,7 +425,32 @@ mod tests {
             max_archive_size: u64::MAX,
             max_entry_count: usize::MAX,
             max_entry_size: u64::MAX,
+            max_compression_ratio: 0,
         };
         assert!(l.is_unrestricted());
+    }
+
+    #[test]
+    fn default_limits_has_compression_ratio() {
+        // Documenting test: the default `Limits` must set a non-zero
+        // `max_compression_ratio` so zip-bomb defence is on out of the box.
+        assert_eq!(Limits::default().max_compression_ratio, 100);
+    }
+
+    #[test]
+    fn limits_new_matches_default() {
+        // `Limits::new` is the const-friendly counterpart of `Limits::default`;
+        // they must produce the same value so callers can pick either.
+        assert_eq!(Limits::new(), Limits::default());
+    }
+
+    #[test]
+    fn limits_max_compression_ratio_zero_disables() {
+        // Documenting test (no runtime enforcement here — that lives in the
+        // 7z backend's extract loop). Setting the ratio to 0 is the documented
+        // way to disable the check.
+        let mut l = Limits::default();
+        l.max_compression_ratio = 0;
+        assert_eq!(l.max_compression_ratio, 0);
     }
 }

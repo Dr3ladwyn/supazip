@@ -107,10 +107,17 @@ impl SevenZBackend {
         // helper closures in this file use `SevenZError::Other(...)` with the
         // message "Operation cancelled" when the user requests cancellation;
         // map that to `ArchiverError::Cancelled` here so callers get a typed
-        // variant instead of an opaque "Invalid archive".
+        // variant instead of an opaque "Invalid archive". The same trick is
+        // used for the zip-bomb guard: the closure emits
+        // `SevenZError::Other("compression ratio exceeds limit".into())` and
+        // we translate it to `ArchiverError::TooLarge` so the caller can
+        // pattern-match on a single, dedicated variant.
         let msg = format!("{err:?}");
         if msg.contains("Operation cancelled") {
             return ArchiverError::Cancelled;
+        }
+        if msg.contains("compression ratio exceeds limit") {
+            return ArchiverError::TooLarge("compression ratio exceeds limit".into());
         }
         match err {
             SevenZError::PasswordRequired => ArchiverError::PasswordRequired,
@@ -337,9 +344,11 @@ impl ArchiveFormat for SevenZBackend {
         // Second pass: actually write the entries to disk under `dest_dir`,
         // with `safe_join` defeating zip-slip-style attacks. We also enforce
         // `max_entry_size` per entry, returning `TooLarge` if a single entry
-        // exceeds the limit.
+        // exceeds the limit, and `max_compression_ratio` per entry as a
+        // zip-bomb guard.
         let mut extracted_size: u64 = 0;
         let filter_ref: Option<&[String]> = entries_filter.as_deref();
+        let max_ratio: u64 = limits.max_compression_ratio as u64;
 
         Self::for_each_entry(
             buffer.reset(),
@@ -404,6 +413,14 @@ impl ArchiveFormat for SevenZBackend {
                 let mut outfile = std::fs::File::create(&outpath)
                     .map_err(|e| SevenZError::Io(e, format!("create {outpath:?}").into()))?;
 
+                // Zip-bomb guard (proof-of-concept; other backends are TODO 0.3).
+                // Compare the per-entry compressed size to the running total of
+                // uncompressed bytes written so far. `max_ratio == 0` disables
+                // the check. The threshold is `compressed_size * ratio`; if the
+                // uncompressed total ever exceeds it, the archive is a bomb and
+                // we abort.
+                let ratio_limit = entry.compressed_size.saturating_mul(max_ratio);
+
                 let mut buf = [0u8; 8192];
                 loop {
                     if progress.is_cancelled() {
@@ -416,6 +433,15 @@ impl ArchiveFormat for SevenZBackend {
 
                     if bytes_read == 0 {
                         break;
+                    }
+
+                    if max_ratio > 0 && extracted_size + bytes_read as u64 > ratio_limit {
+                        // The closure must return a `SevenZError`; we use the
+                        // `Other` variant with a marker string that
+                        // `map_sevenz_error` translates to
+                        // `ArchiverError::TooLarge` so the caller gets a typed
+                        // variant instead of an opaque "Invalid archive".
+                        return Err(SevenZError::Other("compression ratio exceeds limit".into()));
                     }
 
                     outfile
@@ -922,5 +948,88 @@ mod tests {
             listed.iter().any(|e| e.is_dir),
             "expected at least one directory entry, got {listed:?}"
         );
+    }
+
+    #[test]
+    fn extract_rejects_zip_bomb_via_compression_ratio() {
+        // Proof-of-concept for `Limits::max_compression_ratio`. Build a 7z
+        // archive with one highly-compressible entry (64 KiB of zeros), then
+        // extract it under a tight ratio cap; the extract must fail with
+        // `TooLarge`. Repeating with `max_compression_ratio = 0` must succeed
+        // and confirm that 0 disables the check.
+        use crate::traits::ProgressCallback;
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let src = tmp.path().join("src");
+        std::fs::create_dir_all(&src).expect("mkdir src");
+        // 64 KiB of zeros — LZMA2 compresses this to well under 1 KiB.
+        let payload = vec![0u8; 64 * 1024];
+        std::fs::write(src.join("zeros.bin"), &payload).expect("write zeros");
+
+        let archive = tmp.path().join("bomb.7z");
+        let file = std::fs::File::create(&archive).expect("create archive");
+        let writer: Box<dyn WriteSeek> = Box::new(file);
+        let opts = CreateOptions {
+            compression_method: "deflate".to_string(),
+            compression_level: None,
+        };
+        let entries = vec![src.join("zeros.bin")];
+        SevenZBackend::new()
+            .create(
+                writer,
+                &entries,
+                &opts,
+                None,
+                &NoOpProgress,
+                &Limits::default(),
+            )
+            .expect("create");
+
+        // Tight ratio cap (10×): the bomb must be refused.
+        let tight_limits = Limits {
+            max_compression_ratio: 10,
+            ..Limits::default()
+        };
+        let dest_tight = tmp.path().join("out_tight");
+        let res_tight = SevenZBackend::new().extract(
+            Box::new(std::fs::File::open(&archive).expect("open")),
+            &dest_tight,
+            &[],
+            None,
+            &NoOpProgress,
+            &tight_limits,
+        );
+        match res_tight {
+            Err(ArchiverError::TooLarge(msg)) => {
+                assert!(
+                    msg.contains("compression ratio"),
+                    "expected compression-ratio error message, got {msg:?}",
+                );
+            }
+            other => panic!("expected TooLarge, got {other:?}"),
+        }
+
+        // `max_compression_ratio = 0` disables the check; the same archive
+        // must extract cleanly.
+        let loose_limits = Limits {
+            max_compression_ratio: 0,
+            ..Limits::default()
+        };
+        let dest_loose = tmp.path().join("out_loose");
+        SevenZBackend::new()
+            .extract(
+                Box::new(std::fs::File::open(&archive).expect("open")),
+                &dest_loose,
+                &[],
+                None,
+                &NoOpProgress,
+                &loose_limits,
+            )
+            .expect("extract with ratio=0 must succeed");
+        let body = std::fs::read(dest_loose.join("zeros.bin")).expect("read extracted");
+        assert_eq!(body, payload, "round-trip with ratio=0 must preserve bytes");
+
+        // Silence the unused-import warning when this test runs in isolation.
+        let _cb: &dyn ProgressCallback = &NoOpProgress;
     }
 }
