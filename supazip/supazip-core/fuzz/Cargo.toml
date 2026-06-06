@@ -1,0 +1,139 @@
+# cargo-fuzz harness for `supazip-core`.
+#
+# This sub-crate is intentionally **not** a member of the top-level Cargo
+# workspace (see `[workspace]` at the bottom). The main `cargo build` and
+# `cargo test` runs do not touch the fuzz targets, and the fuzz build only
+# pulls in `supazip-core` as a path dependency when `cargo fuzz` is invoked
+# with a nightly toolchain.
+#
+# Standard layout described in the cargo-fuzz book:
+# https://rust-fuzz.github.io/book/cargo-fuzz.html
+
+[package]
+name = "supazip-core-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+# `libfuzzer-sys` is the FFI shim that exposes the `libFuzzer` entry point to
+# each `fuzz_target!`. Pinning to 0.4 matches the version listed in the
+# 0.2.0 dependency table in `docs/milestones/m0.2.0-engine-solid.md`.
+libfuzzer-sys = "0.4"
+
+# `arbitrary` is used to derive `Arbitrary` for the `FuzzCreateInput` struct
+# that drives the `*_create` harnesses. The `derive` feature keeps the
+# surface minimal: `#[derive(arbitrary::Arbitrary)]` is all we need.
+arbitrary = { version = "1", features = ["derive"] }
+
+# Pull the core crate in as a path dependency so every fuzz target can
+# `use supazip_core::{...}` directly. `tempfile` is used inside the
+# `*_extract` and `*_create` harnesses for the destination / corpus dir.
+supazip-core = { path = ".." }
+tempfile = "3"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Each `fuzz_targets/<name>.rs` is a separate cargo binary; the `fuzz` driver
+# selects the binary by `name`. `test = false` and `doc = false` keep cargo's
+# default `cargo test` / `cargo doc` from trying to build them as libraries.
+[[bin]]
+name = "zip_list"
+path = "fuzz_targets/zip_list.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "zip_extract"
+path = "fuzz_targets/zip_extract.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "zip_create"
+path = "fuzz_targets/zip_create.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "sevenz_list"
+path = "fuzz_targets/sevenz_list.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "sevenz_extract"
+path = "fuzz_targets/sevenz_extract.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "sevenz_create"
+path = "fuzz_targets/sevenz_create.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "tar_list"
+path = "fuzz_targets/tar_list.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "tar_extract"
+path = "fuzz_targets/tar_extract.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "tar_create"
+path = "fuzz_targets/tar_create.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "targz_list"
+path = "fuzz_targets/targz_list.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "targz_extract"
+path = "fuzz_targets/targz_extract.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "targz_create"
+path = "fuzz_targets/targz_create.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "tarxz_list"
+path = "fuzz_targets/tarxz_list.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "tarxz_extract"
+path = "fuzz_targets/tarxz_extract.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "tarxz_create"
+path = "fuzz_targets/tarxz_create.rs"
+test = false
+doc = false
+
+# Suppress the warning about `[profile.release]` not being set in a
+# workspace; cargo-fuzz rewrites this section at runtime.
+[lints.rust]
+unsafe_code = "deny"
+unexpected_cfgs = { level = "allow" }
+
+# Isolate this sub-crate from the main workspace so `cargo build --workspace`
+# and `cargo test --workspace` keep working on stable Rust.
+[workspace]

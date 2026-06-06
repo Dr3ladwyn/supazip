@@ -90,3 +90,59 @@ jobs:
       - name: Build supazip-gui
         working-directory: supazip
         run: cargo build -p supazip-gui --locked
+
+  fuzz-smoke:
+    name: Fuzz smoke (${{ matrix.strategy }})
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        # `smoke` runs two representative cargo-fuzz harnesses for 60 seconds
+        # each. `none` is the explicit off-switch; useful for the initial cut
+        # of 0.2.0 when nightly / cargo-fuzz is not yet available on the
+        # runner. The job is `continue-on-error: true` either way: it is a
+        # regression alarm, not a hard gate, in 0.2.0.
+        strategy: [smoke, none]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install rustup + Rust nightly
+        if: matrix.strategy == 'smoke'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: nightly
+          components: clippy, rustfmt
+
+      - name: Cache cargo
+        if: matrix.strategy == 'smoke'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-fuzz-${{ runner.os }}-nightly-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            cargo-fuzz-${{ runner.os }}-nightly-
+            cargo-fuzz-${{ runner.os }}-
+
+      - name: Install cargo-fuzz
+        if: matrix.strategy == 'smoke'
+        run: cargo install cargo-fuzz
+
+      - name: Fuzz zip_list (60s)
+        if: matrix.strategy == 'smoke'
+        working-directory: supazip/supazip-core
+        run: cargo +nightly fuzz run zip_list -- -max_total_time=60
+
+      - name: Fuzz sevenz_extract (60s)
+        if: matrix.strategy == 'smoke'
+        working-directory: supazip/supazip-core
+        run: cargo +nightly fuzz run sevenz_extract -- -max_total_time=60
+
+      - name: Skip
+        if: matrix.strategy == 'none'
+        run: |
+          echo "fuzz smoke disabled for this run (matrix.strategy=none) — set matrix.strategy=smoke to enable the 60s cargo-fuzz smoke."
+          echo "see supazip-core/fuzz/README.md for the manual runbook."
