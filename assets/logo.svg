@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 48" width="192" height="48" role="img" aria-label="SupaZip">
+  <title>SupaZip</title>
+  <style>:root { color: #0E1116; }</style>
+  <g transform="translate(6 6) scale(1.5)" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <line x1="10" y1="1" x2="14" y2="1"/>
+    <rect x="4" y="2" width="16" height="20" rx="2" ry="2"/>
+    <line x1="6" y1="8" x2="18" y2="8"/>
+    <line x1="6" y1="14" x2="18" y2="14"/>
+    <line x1="12" y1="20" x2="12" y2="24"/>
+    <line x1="10" y1="22" x2="14" y2="22"/>
+  </g>
+  <circle cx="24" cy="33" r="0.75" fill="currentColor"/>
+  <text x="48" y="32" font-family="'JetBrains Mono','Courier New',monospace" font-weight="700" font-size="24" fill="currentColor">SupaZip</text>
+</svg>
