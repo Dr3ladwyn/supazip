@@ -19,6 +19,9 @@ pub enum ArchiverError {
 
     #[error("Unsupported format: {0}")]
     UnsupportedFormat(String),
+
+    #[error("Archive exceeds resource limit: {0}")]
+    TooLarge(String),
 }
 
 #[cfg(test)]
@@ -72,6 +75,13 @@ mod tests {
     fn display_unsupported_format_contains_extension() {
         let e = ArchiverError::UnsupportedFormat("rar".into());
         assert!(e.to_string().contains("rar"));
+    }
+
+    #[test]
+    fn display_too_large_contains_message() {
+        let e = ArchiverError::TooLarge("archive > 4 GiB".into());
+        assert!(e.to_string().contains("resource limit"));
+        assert!(e.to_string().contains("4 GiB"));
     }
 
     #[test]

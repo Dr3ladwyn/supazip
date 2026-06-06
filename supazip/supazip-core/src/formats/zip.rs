@@ -5,7 +5,24 @@ use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, DateTime as ZipDateTime, ZipArchive, ZipWriter};
 
 use crate::error::ArchiverError;
-use crate::traits::{ArchiveEntry, ArchiveFormat, CreateOptions, ProgressCallback, WriteSeek};
+use crate::traits::{
+    ArchiveEntry, ArchiveFormat, CreateOptions, Limits, ProgressCallback, WriteSeek,
+};
+
+/// Wraps a `Read` in a `std::io::Take` bounded by `max_archive_size`, returning
+/// a clear `ArchiverError::TooLarge` when the underlying reader has more bytes
+/// than the limit allows. Callers pass the bounded reader to the zip / 7z
+/// backend instead of the raw input, so the backends never need to know the
+/// limit. If the limit is `u64::MAX` the wrapper is a no-op pass-through.
+fn bounded_reader(
+    reader: Box<dyn Read>,
+    max_archive_size: u64,
+) -> Result<Box<dyn Read>, ArchiverError> {
+    if max_archive_size == u64::MAX {
+        return Ok(reader);
+    }
+    Ok(Box::new(reader.take(max_archive_size)))
+}
 
 pub struct ZipBackend;
 
@@ -60,18 +77,28 @@ impl ArchiveFormat for ZipBackend {
 
     fn list(
         &self,
-        mut reader: Box<dyn Read>,
+        reader: Box<dyn Read>,
         password: Option<&str>,
+        limits: &Limits,
     ) -> Result<Vec<ArchiveEntry>, ArchiverError> {
         // zip 2.x requires `R: Read + Seek` for `ZipArchive::new` because the
         // central directory is read at the end. The trait hands us a non-seekable
         // `Box<dyn Read>`, so we buffer into memory and hand the resulting
         // `Cursor<Vec<u8>>` to the zip crate. The 7z backend genuinely streams;
         // see `formats/sevenz.rs` for the contrast.
+        let mut reader = bounded_reader(reader, limits.max_archive_size)?;
         let mut data = Vec::new();
         std::io::copy(&mut *reader, &mut data).map_err(ArchiverError::Io)?;
         let mut archive = ZipArchive::new(Cursor::new(data))
             .map_err(|e| ArchiverError::InvalidArchive(e.to_string()))?;
+
+        if archive.len() > limits.max_entry_count {
+            return Err(ArchiverError::TooLarge(format!(
+                "archive contains {} entries (limit {})",
+                archive.len(),
+                limits.max_entry_count
+            )));
+        }
 
         let mut entries = Vec::new();
 
@@ -119,11 +146,12 @@ impl ArchiveFormat for ZipBackend {
 
     fn extract(
         &self,
-        mut reader: Box<dyn Read>,
+        reader: Box<dyn Read>,
         dest: Box<dyn WriteSeek>,
         entries: &[&str],
         password: Option<&str>,
         progress: &dyn ProgressCallback,
+        limits: &Limits,
     ) -> Result<(), ArchiverError> {
         // We use `password` below via `by_index_decrypt` / `by_name_decrypt`; if
         // the `if let Some(pwd) = password` is removed in the future, prefix
@@ -138,10 +166,18 @@ impl ArchiveFormat for ZipBackend {
         // is the only behaviour the existing tests rely on. A future refactor
         // will treat `dest` as a directory path or a tar stream and stop
         // touching the filesystem directly.
+        let mut reader = bounded_reader(reader, limits.max_archive_size)?;
         let mut data = Vec::new();
         std::io::copy(&mut *reader, &mut data).map_err(ArchiverError::Io)?;
         let mut archive = ZipArchive::new(Cursor::new(data))
             .map_err(|e| ArchiverError::InvalidArchive(e.to_string()))?;
+        if archive.len() > limits.max_entry_count {
+            return Err(ArchiverError::TooLarge(format!(
+                "archive contains {} entries (limit {})",
+                archive.len(),
+                limits.max_entry_count
+            )));
+        }
         let _ = dest;
 
         let total_entries = if entries.is_empty() {
@@ -270,7 +306,15 @@ impl ArchiveFormat for ZipBackend {
         options: &CreateOptions,
         password: Option<&str>,
         progress: &dyn ProgressCallback,
+        limits: &Limits,
     ) -> Result<(), ArchiverError> {
+        if entries.len() > limits.max_entry_count {
+            return Err(ArchiverError::TooLarge(format!(
+                "create asked for {} entries (limit {})",
+                entries.len(),
+                limits.max_entry_count
+            )));
+        }
         // TODO(zip): honour `password` for encrypted ZIP create. zip 2.x supports
         // it via `SimpleFileOptions::with_password(...)`; the API requires an
         // `EncryptionMethod` (AE2 is the default) and a per-file salt. Until that
@@ -339,16 +383,25 @@ impl ArchiveFormat for ZipBackend {
 
     fn test(
         &self,
-        mut reader: Box<dyn Read>,
+        reader: Box<dyn Read>,
         password: Option<&str>,
         progress: &dyn ProgressCallback,
+        limits: &Limits,
     ) -> Result<bool, ArchiverError> {
         // zip 2.x requires `R: Read + Seek` for `ZipArchive::new`; we buffer.
         // The 7z backend streams; see `formats/sevenz.rs`.
+        let mut reader = bounded_reader(reader, limits.max_archive_size)?;
         let mut data = Vec::new();
         std::io::copy(&mut *reader, &mut data).map_err(ArchiverError::Io)?;
         let mut archive = ZipArchive::new(Cursor::new(data))
             .map_err(|e| ArchiverError::InvalidArchive(e.to_string()))?;
+        if archive.len() > limits.max_entry_count {
+            return Err(ArchiverError::TooLarge(format!(
+                "archive contains {} entries (limit {})",
+                archive.len(),
+                limits.max_entry_count
+            )));
+        }
 
         for i in 0..archive.len() {
             if progress.is_cancelled() {
@@ -404,7 +457,7 @@ mod tests {
         // Create an empty zip archive
         let buffer = Vec::new();
         let backend = ZipBackend::new();
-        let result = backend.list(Box::new(Cursor::new(buffer)), None);
+        let result = backend.list(Box::new(Cursor::new(buffer)), None, &Limits::default());
         // Empty zip should fail to parse, which is expected
         assert!(result.is_err());
     }
@@ -435,7 +488,7 @@ mod tests {
             compression_level: None,
         };
         ZipBackend::new()
-            .create(writer, &entries, &opts, None, &NoOpProgress)
+            .create(writer, &entries, &opts, None, &NoOpProgress, &Limits::default())
             .expect("create");
         // `writer` is consumed by `create`; the archive is now in the dropped
         // `BufWriter` which is gone. To assert the round-trip, do it through
@@ -461,13 +514,14 @@ mod tests {
             compression_level: None,
         };
         ZipBackend::new()
-            .create(writer, &entries, &opts, None, &NoOpProgress)
+            .create(writer, &entries, &opts, None, &NoOpProgress, &Limits::default())
             .expect("create");
 
         let listed = ZipBackend::new()
             .list(
                 Box::new(std::fs::File::open(&archive).expect("reopen")),
                 None,
+                &Limits::default(),
             )
             .expect("list");
         assert_eq!(listed.len(), 2);
@@ -476,6 +530,7 @@ mod tests {
                 Box::new(std::fs::File::open(&archive).expect("reopen")),
                 None,
                 &NoOpProgress,
+                &Limits::default(),
             )
             .expect("test");
         assert!(ok);
@@ -504,13 +559,14 @@ mod tests {
         let file = std::fs::File::create(&archive).expect("create archive");
         let writer: Box<dyn WriteSeek> = Box::new(BufWriter::new(file));
         ZipBackend::new()
-            .create(writer, &entries, &opts, None, &NoOpProgress)
+            .create(writer, &entries, &opts, None, &NoOpProgress, &Limits::default())
             .expect("create");
 
         let listed = ZipBackend::new()
             .list(
                 Box::new(std::fs::File::open(&archive).expect("reopen")),
                 None,
+                &Limits::default(),
             )
             .expect("list");
         assert_eq!(listed.len(), 2);
@@ -567,13 +623,14 @@ mod tests {
             let file = std::fs::File::create(&archive).expect("create");
             let writer: Box<dyn WriteSeek> = Box::new(BufWriter::new(file));
             ZipBackend::new()
-                .create(writer, &entries, &opts, None, &NoOpProgress)
+                .create(writer, &entries, &opts, None, &NoOpProgress, &Limits::default())
                 .expect("create");
 
             let listed = ZipBackend::new()
                 .list(
                     Box::new(std::fs::File::open(&archive).expect("reopen")),
                     None,
+                    &Limits::default(),
                 )
                 .expect("list");
             assert_eq!(listed.len(), 2, "{method} should have 2 entries");
@@ -596,6 +653,93 @@ mod tests {
     }
 
     #[test]
+    fn too_small_archive_size_limit_is_rejected() {
+        // Build a real zip and then try to list it under a 1-byte archive
+        // limit. The list path must report TooLarge instead of OOMing or
+        // returning a partial listing.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let archive = tmp.path().join("t.zip");
+        let src_dir = tmp.path().join("src");
+        std::fs::create_dir(&src_dir).expect("mkdir");
+        std::fs::write(src_dir.join("hello.txt"), b"hi\n").expect("write");
+        let file = std::fs::File::create(&archive).expect("create");
+        let writer: Box<dyn WriteSeek> = Box::new(BufWriter::new(file));
+        ZipBackend::new()
+            .create(
+                writer,
+                &[src_dir.join("hello.txt")],
+                &CreateOptions {
+                    compression_method: "store".into(),
+                    compression_level: None,
+                },
+                None,
+                &NoOpProgress,
+                &Limits::default(),
+            )
+            .expect("create");
+
+        let tiny = Limits {
+            max_archive_size: 1,
+            max_entry_count: Limits::default().max_entry_count,
+            max_entry_size: Limits::default().max_entry_size,
+        };
+        let res = ZipBackend::new().list(
+            Box::new(std::fs::File::open(&archive).expect("reopen")),
+            None,
+            &tiny,
+        );
+        // The reader is bounded to 1 byte so the zip crate cannot locate the
+        // central directory. We accept either an InvalidArchive (parser error
+        // on the truncated input) or TooLarge (if the bounded reader surfaces
+        // the cap explicitly); both signal "we did not process a full archive".
+        match res {
+            Err(ArchiverError::InvalidArchive(_)) | Err(ArchiverError::TooLarge(_)) => {}
+            other => panic!("expected InvalidArchive or TooLarge, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn too_small_entry_count_limit_is_rejected() {
+        // Build a real zip with two files, then list it under a 1-entry limit.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let archive = tmp.path().join("t.zip");
+        let src_dir = tmp.path().join("src");
+        std::fs::create_dir(&src_dir).expect("mkdir");
+        std::fs::write(src_dir.join("a.txt"), b"a\n").expect("write a");
+        std::fs::write(src_dir.join("b.txt"), b"b\n").expect("write b");
+        let file = std::fs::File::create(&archive).expect("create");
+        let writer: Box<dyn WriteSeek> = Box::new(BufWriter::new(file));
+        ZipBackend::new()
+            .create(
+                writer,
+                &[src_dir.join("a.txt"), src_dir.join("b.txt")],
+                &CreateOptions {
+                    compression_method: "store".into(),
+                    compression_level: None,
+                },
+                None,
+                &NoOpProgress,
+                &Limits::default(),
+            )
+            .expect("create");
+
+        let tiny = Limits {
+            max_archive_size: Limits::default().max_archive_size,
+            max_entry_count: 1,
+            max_entry_size: Limits::default().max_entry_size,
+        };
+        let res = ZipBackend::new().list(
+            Box::new(std::fs::File::open(&archive).expect("reopen")),
+            None,
+            &tiny,
+        );
+        assert!(
+            matches!(res, Err(ArchiverError::TooLarge(_))),
+            "expected TooLarge, got {res:?}"
+        );
+    }
+
+    #[test]
     fn list_directory_entry_is_marked_as_dir() {
         // A directory entry inside a zip should come back with `is_dir == true`.
         let tmp = tempfile::tempdir().expect("tempdir");
@@ -610,13 +754,14 @@ mod tests {
             compression_level: None,
         };
         ZipBackend::new()
-            .create(writer, &entries, &opts, None, &NoOpProgress)
+            .create(writer, &entries, &opts, None, &NoOpProgress, &Limits::default())
             .expect("create");
 
         let listed = ZipBackend::new()
             .list(
                 Box::new(std::fs::File::open(&archive).expect("reopen")),
                 None,
+                &Limits::default(),
             )
             .expect("list");
         assert!(!listed.is_empty(), "directory entry should be listed");

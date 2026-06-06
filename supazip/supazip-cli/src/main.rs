@@ -7,7 +7,7 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use supazip_core::error::ArchiverError;
-use supazip_core::traits::{CreateOptions, ProgressCallback};
+use supazip_core::traits::{CreateOptions, Limits, ProgressCallback};
 use supazip_core::{formats, ArchiveFormat};
 
 #[derive(Parser, Debug)]
@@ -119,10 +119,11 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: Cli) -> Result<(), ArchiverError> {
+    let limits = effective_limits();
     match cli.command {
         Command::List { archive, password } => {
             let backend = resolve_backend(&archive, None)?;
-            cmd_list(backend, &archive, password.as_deref())
+            cmd_list(backend, &archive, password.as_deref(), &limits)
         }
         Command::Extract {
             archive,
@@ -132,7 +133,7 @@ fn run(cli: Cli) -> Result<(), ArchiverError> {
             entries,
         } => {
             let backend = resolve_backend(&archive, None)?;
-            cmd_extract(backend, &archive, &out, password.as_deref(), &entries)
+            cmd_extract(backend, &archive, &out, password.as_deref(), &entries, &limits)
         }
         Command::Create {
             archive,
@@ -141,13 +142,50 @@ fn run(cli: Cli) -> Result<(), ArchiverError> {
             password,
         } => {
             let backend = resolve_backend(&archive, format.map(format_to_ext))?;
-            cmd_create(backend, &archive, &files, password.as_deref())
+            cmd_create(backend, &archive, &files, password.as_deref(), &limits)
         }
         Command::Test { archive, password } => {
             let backend = resolve_backend(&archive, None)?;
-            cmd_test(backend, &archive, password.as_deref())
+            cmd_test(backend, &archive, password.as_deref(), &limits)
         }
     }
+}
+
+/// Resolve the `Limits` for this CLI invocation. Defaults are taken from
+/// `Limits::default()`. The user can lower `max_archive_size` via the
+/// `SUPAZIP_MAX_ARCHIVE_SIZE` environment variable (decimal bytes, or with a
+/// `K`/`M`/`G` suffix). Other limits are not currently configurable; exposing
+/// them as flags is a future addition.
+fn effective_limits() -> Limits {
+    let mut limits = Limits::default();
+    if let Ok(raw) = std::env::var("SUPAZIP_MAX_ARCHIVE_SIZE") {
+        if let Some(v) = parse_size(&raw) {
+            limits.max_archive_size = v;
+        } else {
+            eprintln!(
+                "warning: ignoring SUPAZIP_MAX_ARCHIVE_SIZE='{raw}' (cannot parse; \
+                 expected decimal bytes or with K/M/G suffix)"
+            );
+        }
+    }
+    limits
+}
+
+/// Parse a size string with optional `K`/`M`/`G` suffix into bytes. `None` on
+/// parse failure.
+fn parse_size(s: &str) -> Option<u64> {
+    let s = s.trim();
+    if s.is_empty() {
+        return None;
+    }
+    let (num, mult) = match s.chars().last() {
+        Some('k') | Some('K') => (&s[..s.len() - 1], 1024u64),
+        Some('m') | Some('M') => (&s[..s.len() - 1], 1024u64 * 1024),
+        Some('g') | Some('G') => (&s[..s.len() - 1], 1024u64 * 1024 * 1024),
+        _ => (s, 1u64),
+    };
+    let n: u64 = num.trim().parse().ok()?;
+    n.checked_mul(mult)
 }
 
 fn format_to_ext(f: Format) -> &'static str {
@@ -188,10 +226,11 @@ fn cmd_list(
     backend: &dyn ArchiveFormat,
     archive: &Path,
     password: Option<&str>,
+    limits: &Limits,
 ) -> Result<(), ArchiverError> {
     tracing::info!(archive = %archive.display(), backend = backend.name(), "list");
     let file = File::open(archive)?;
-    let entries = backend.list(Box::new(BufReader::new(file)), password)?;
+    let entries = backend.list(Box::new(BufReader::new(file)), password, limits)?;
 
     // Plain-text table: name, size, compressed, encrypted.
     println!(
@@ -216,6 +255,7 @@ fn cmd_extract(
     out: &Path,
     password: Option<&str>,
     entries: &[String],
+    limits: &Limits,
 ) -> Result<(), ArchiverError> {
     tracing::info!(archive = %archive.display(), out = %out.display(), backend = backend.name(), "extract");
     std::fs::create_dir_all(out)?;
@@ -237,6 +277,7 @@ fn cmd_extract(
             &entry_refs,
             password,
             &StderrProgress,
+            limits,
         )
     })();
 
@@ -253,6 +294,7 @@ fn cmd_create(
     archive: &Path,
     files: &[PathBuf],
     password: Option<&str>,
+    limits: &Limits,
 ) -> Result<(), ArchiverError> {
     tracing::info!(archive = %archive.display(), backend = backend.name(), entries = files.len(), "create");
     let out_file = File::create(archive)?;
@@ -261,7 +303,7 @@ fn cmd_create(
         compression_method: "deflate".to_string(),
         compression_level: None,
     };
-    backend.create(writer, files, &options, password, &StderrProgress)?;
+    backend.create(writer, files, &options, password, &StderrProgress, limits)?;
     println!("created {} ({} entries)", archive.display(), files.len());
     Ok(())
 }
@@ -270,10 +312,11 @@ fn cmd_test(
     backend: &dyn ArchiveFormat,
     archive: &Path,
     password: Option<&str>,
+    limits: &Limits,
 ) -> Result<(), ArchiverError> {
     tracing::info!(archive = %archive.display(), backend = backend.name(), "test");
     let file = File::open(archive)?;
-    let ok = backend.test(Box::new(BufReader::new(file)), password, &StderrProgress)?;
+    let ok = backend.test(Box::new(BufReader::new(file)), password, &StderrProgress, limits)?;
     if ok {
         println!("OK: {}", archive.display());
         Ok(())

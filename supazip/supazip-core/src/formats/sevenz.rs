@@ -8,7 +8,21 @@ use sevenz_rust::{
 };
 
 use crate::error::ArchiverError;
-use crate::traits::{ArchiveEntry, ArchiveFormat, CreateOptions, ProgressCallback, WriteSeek};
+use crate::traits::{
+    ArchiveEntry, ArchiveFormat, CreateOptions, Limits, ProgressCallback, WriteSeek,
+};
+
+/// Apply the `max_archive_size` limit to a boxed reader. Mirrors the helper in
+/// `formats/zip.rs`; if you change the semantics, change them in both places.
+fn bounded_reader(
+    reader: Box<dyn Read>,
+    max_archive_size: u64,
+) -> Result<Box<dyn Read>, ArchiverError> {
+    if max_archive_size == u64::MAX {
+        return Ok(reader);
+    }
+    Ok(Box::new(reader.take(max_archive_size)))
+}
 
 pub struct SevenZBackend;
 
@@ -178,14 +192,16 @@ impl ArchiveFormat for SevenZBackend {
 
     fn list(
         &self,
-        mut reader: Box<dyn Read>,
+        reader: Box<dyn Read>,
         password: Option<&str>,
+        limits: &Limits,
     ) -> Result<Vec<ArchiveEntry>, ArchiverError> {
         tracing::debug!("Listing 7z archive");
 
         let pwd = Self::get_password(password);
 
         // Buffer the entire reader to satisfy SevenZReader's `Read + Seek` bound.
+        let mut reader = bounded_reader(reader, limits.max_archive_size)?;
         let mut data = Vec::new();
         std::io::copy(&mut *reader, &mut data).map_err(ArchiverError::Io)?;
         let mut buffer = SharedBuffer::new(data);
@@ -214,11 +230,12 @@ impl ArchiveFormat for SevenZBackend {
 
     fn extract(
         &self,
-        mut reader: Box<dyn Read>,
+        reader: Box<dyn Read>,
         dest: Box<dyn WriteSeek>,
         entries: &[&str],
         password: Option<&str>,
         progress: &dyn ProgressCallback,
+        limits: &Limits,
     ) -> Result<(), ArchiverError> {
         tracing::debug!("Extracting {} entries from 7z archive", entries.len());
 
@@ -227,6 +244,7 @@ impl ArchiveFormat for SevenZBackend {
         // One buffer, three passes (probe for AES, count size, then extract).
         // All three pass over the same `SharedBuffer` — no second copy of the
         // archive bytes.
+        let mut reader = bounded_reader(reader, limits.max_archive_size)?;
         let mut data = Vec::new();
         std::io::copy(&mut *reader, &mut data).map_err(ArchiverError::Io)?;
         let mut buffer = SharedBuffer::new(data);
@@ -324,7 +342,16 @@ impl ArchiveFormat for SevenZBackend {
         _options: &CreateOptions,
         password: Option<&str>,
         progress: &dyn ProgressCallback,
+        limits: &Limits,
     ) -> Result<(), ArchiverError> {
+        if entries.len() > limits.max_entry_count {
+            return Err(ArchiverError::TooLarge(format!(
+                "create asked for {} entries (limit {})",
+                entries.len(),
+                limits.max_entry_count
+            )));
+        }
+
         tracing::debug!("Creating 7z archive with {} entries", entries.len());
 
         let mut sz = SevenZWriter::new(writer).map_err(|e| {
@@ -387,9 +414,10 @@ impl ArchiveFormat for SevenZBackend {
 
     fn test(
         &self,
-        mut reader: Box<dyn Read>,
+        reader: Box<dyn Read>,
         password: Option<&str>,
         progress: &dyn ProgressCallback,
+        limits: &Limits,
     ) -> Result<bool, ArchiverError> {
         tracing::debug!("Testing 7z archive");
 
@@ -397,6 +425,7 @@ impl ArchiveFormat for SevenZBackend {
 
         // One buffer, two passes via the same `SharedBuffer` (no clone of
         // the archive bytes).
+        let mut reader = bounded_reader(reader, limits.max_archive_size)?;
         let mut data = Vec::new();
         std::io::copy(&mut *reader, &mut data).map_err(ArchiverError::Io)?;
         let mut buffer = SharedBuffer::new(data);
@@ -494,11 +523,15 @@ mod tests {
             compression_level: None,
         };
         SevenZBackend::new()
-            .create(writer, &entries, &opts, None, &NoOpProgress)
+            .create(writer, &entries, &opts, None, &NoOpProgress, &Limits::default())
             .expect("create");
 
         let listed = SevenZBackend::new()
-            .list(Box::new(std::fs::File::open(&archive).expect("open")), None)
+            .list(
+                Box::new(std::fs::File::open(&archive).expect("open")),
+                None,
+                &Limits::default(),
+            )
             .expect("list");
         assert_eq!(listed.len(), 2);
         assert!(
@@ -511,6 +544,7 @@ mod tests {
                 Box::new(std::fs::File::open(&archive).expect("open")),
                 None,
                 &NoOpProgress,
+                &Limits::default(),
             )
             .expect("test");
         assert!(ok);
@@ -536,12 +570,16 @@ mod tests {
                 &opts,
                 Some("correct-horse"),
                 &NoOpProgress,
+                &Limits::default(),
             )
             .expect("create");
 
         // Reading without a password should fail.
-        let no_pwd =
-            SevenZBackend::new().list(Box::new(std::fs::File::open(&archive).expect("open")), None);
+        let no_pwd = SevenZBackend::new().list(
+            Box::new(std::fs::File::open(&archive).expect("open")),
+            None,
+            &Limits::default(),
+        );
         assert!(
             no_pwd.is_err(),
             "expected password error when listing encrypted 7z without pwd"
@@ -552,6 +590,7 @@ mod tests {
             .list(
                 Box::new(std::fs::File::open(&archive).expect("open")),
                 Some("correct-horse"),
+                &Limits::default(),
             )
             .expect("list with pwd");
         assert_eq!(listed.len(), 2);
@@ -585,6 +624,7 @@ mod tests {
                 &opts,
                 Some("correct-horse"),
                 &NoOpProgress,
+                &Limits::default(),
             )
             .expect("create");
 
@@ -594,6 +634,7 @@ mod tests {
             .list(
                 Box::new(std::fs::File::open(&archive).expect("open")),
                 Some("battery-staple"),
+                &Limits::default(),
             )
             .expect_err("wrong password should fail");
         assert!(
@@ -622,7 +663,7 @@ mod tests {
             compression_level: None,
         };
         SevenZBackend::new()
-            .create(writer, &entries, &opts, None, &NoOpProgress)
+            .create(writer, &entries, &opts, None, &NoOpProgress, &Limits::default())
             .expect("create");
 
         let ok = SevenZBackend::new()
@@ -630,6 +671,7 @@ mod tests {
                 Box::new(std::fs::File::open(&archive).expect("open")),
                 None,
                 &NoOpProgress,
+                &Limits::default(),
             )
             .expect("test");
         assert!(ok);
@@ -646,6 +688,7 @@ mod tests {
             Box::new(std::fs::File::open(&archive).expect("open")),
             None,
             &NoOpProgress,
+            &Limits::default(),
         );
         assert!(res.is_err(), "corrupt archive should error, got {res:?}");
     }
@@ -673,11 +716,16 @@ mod tests {
                 &opts,
                 None,
                 &NoOpProgress,
+                &Limits::default(),
             )
             .expect("create");
 
         let listed = SevenZBackend::new()
-            .list(Box::new(std::fs::File::open(&archive).expect("open")), None)
+            .list(
+                Box::new(std::fs::File::open(&archive).expect("open")),
+                None,
+                &Limits::default(),
+            )
             .expect("list");
         assert!(!listed.is_empty());
         assert!(

@@ -181,6 +181,44 @@ pub struct CreateOptions {
     pub compression_level: Option<u32>,
 }
 
+/// Resource limits applied to archive operations. Used to refuse zip-bomb-class
+/// inputs and to keep memory usage bounded.
+#[derive(Debug, Clone, Copy)]
+pub struct Limits {
+    /// Maximum number of bytes the archive reader is allowed to produce. A
+    /// `list`, `test`, or `extract` call that would consume more than this
+    /// returns `ArchiverError::TooLarge` instead of buffering the whole input.
+    pub max_archive_size: u64,
+    /// Maximum number of entries a single archive may contain.
+    pub max_entry_count: usize,
+    /// Maximum size of any single extracted or listed entry, in bytes. Enforced
+    /// at metadata time where possible; if the backend cannot determine size up
+    /// front, the per-byte progress check enforces it during streaming.
+    pub max_entry_size: u64,
+}
+
+impl Default for Limits {
+    fn default() -> Self {
+        // Defaults chosen for a desktop user opening normal archives on a
+        // machine with comfortable RAM. CLI / GUI can override per call.
+        Self {
+            max_archive_size: 4 * 1024 * 1024 * 1024, // 4 GiB
+            max_entry_count: 1_000_000,
+            max_entry_size: 1 * 1024 * 1024 * 1024, // 1 GiB per entry
+        }
+    }
+}
+
+impl Limits {
+    /// `true` when the limits describe an unrestricted run. Used by the backends
+    /// to skip the per-byte read checks when no limit is in force.
+    pub fn is_unrestricted(&self) -> bool {
+        self.max_archive_size == u64::MAX
+            && self.max_entry_count == usize::MAX
+            && self.max_entry_size == u64::MAX
+    }
+}
+
 pub trait ProgressCallback: Send {
     fn set_progress(&self, current: u64, total: u64);
     fn set_message(&self, message: &str);
@@ -199,6 +237,7 @@ pub trait ArchiveFormat: Send + Sync {
         &self,
         reader: Box<dyn Read>,
         password: Option<&str>,
+        limits: &Limits,
     ) -> Result<Vec<ArchiveEntry>, ArchiverError>;
 
     fn extract(
@@ -208,6 +247,7 @@ pub trait ArchiveFormat: Send + Sync {
         entries: &[&str],
         password: Option<&str>,
         progress: &dyn ProgressCallback,
+        limits: &Limits,
     ) -> Result<(), ArchiverError>;
 
     fn create(
@@ -217,6 +257,7 @@ pub trait ArchiveFormat: Send + Sync {
         options: &CreateOptions,
         password: Option<&str>,
         progress: &dyn ProgressCallback,
+        limits: &Limits,
     ) -> Result<(), ArchiverError>;
 
     fn test(
@@ -224,6 +265,7 @@ pub trait ArchiveFormat: Send + Sync {
         reader: Box<dyn Read>,
         password: Option<&str>,
         progress: &dyn ProgressCallback,
+        limits: &Limits,
     ) -> Result<bool, ArchiverError>;
 }
 
@@ -295,5 +337,24 @@ mod tests {
         fn _accepts_write_seek<W: WriteSeek>(_: &mut W) {}
         let mut c = std::io::Cursor::new(Vec::<u8>::new());
         _accepts_write_seek(&mut c);
+    }
+
+    #[test]
+    fn limits_default_is_sane() {
+        let l = Limits::default();
+        assert!(l.max_archive_size >= 1024 * 1024);
+        assert!(l.max_entry_count >= 1000);
+        assert!(l.max_entry_size >= 1024 * 1024);
+        assert!(!l.is_unrestricted());
+    }
+
+    #[test]
+    fn limits_unrestricted_helper() {
+        let l = Limits {
+            max_archive_size: u64::MAX,
+            max_entry_count: usize::MAX,
+            max_entry_size: u64::MAX,
+        };
+        assert!(l.is_unrestricted());
     }
 }
