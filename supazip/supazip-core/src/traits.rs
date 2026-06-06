@@ -204,7 +204,7 @@ impl Default for Limits {
         Self {
             max_archive_size: 4 * 1024 * 1024 * 1024, // 4 GiB
             max_entry_count: 1_000_000,
-            max_entry_size: 1 * 1024 * 1024 * 1024, // 1 GiB per entry
+            max_entry_size: 1024 * 1024 * 1024, // 1 GiB per entry
         }
     }
 }

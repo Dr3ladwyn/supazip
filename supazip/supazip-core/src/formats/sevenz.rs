@@ -362,9 +362,8 @@ impl ArchiveFormat for SevenZBackend {
                             return Ok(true);
                         }
                     };
-                    std::fs::create_dir_all(&outpath).map_err(|e| {
-                        SevenZError::Io(e, format!("mkdir {outpath:?}").into())
-                    })?;
+                    std::fs::create_dir_all(&outpath)
+                        .map_err(|e| SevenZError::Io(e, format!("mkdir {outpath:?}").into()))?;
                     return Ok(true);
                 }
 
@@ -376,9 +375,10 @@ impl ArchiveFormat for SevenZBackend {
                         // sevenz-rust cursor stays in sync.
                         let mut sink = [0u8; 8192];
                         loop {
-                            if entry_reader.read(&mut sink).map_err(|e| {
-                                SevenZError::Io(e, "drain skipped entry".into())
-                            })? == 0
+                            if entry_reader
+                                .read(&mut sink)
+                                .map_err(|e| SevenZError::Io(e, "drain skipped entry".into()))?
+                                == 0
                             {
                                 break;
                             }
@@ -389,22 +389,20 @@ impl ArchiveFormat for SevenZBackend {
 
                 if entry.size() > limits.max_entry_size {
                     return Err(SevenZError::Io(
-                        std::io::Error::new(std::io::ErrorKind::Other, "entry too large"),
+                        std::io::Error::other("entry too large"),
                         format!("entry {} exceeds max_entry_size", entry.size()).into(),
                     ));
                 }
 
                 if let Some(parent) = outpath.parent() {
                     if !parent.as_os_str().is_empty() {
-                        std::fs::create_dir_all(parent).map_err(|e| {
-                            SevenZError::Io(e, format!("mkdir {parent:?}").into())
-                        })?;
+                        std::fs::create_dir_all(parent)
+                            .map_err(|e| SevenZError::Io(e, format!("mkdir {parent:?}").into()))?;
                     }
                 }
 
-                let mut outfile = std::fs::File::create(&outpath).map_err(|e| {
-                    SevenZError::Io(e, format!("create {outpath:?}").into())
-                })?;
+                let mut outfile = std::fs::File::create(&outpath)
+                    .map_err(|e| SevenZError::Io(e, format!("create {outpath:?}").into()))?;
 
                 let mut buf = [0u8; 8192];
                 loop {
@@ -455,9 +453,8 @@ impl ArchiveFormat for SevenZBackend {
 
         tracing::debug!("Creating 7z archive with {} entries", entries.len());
 
-        let mut sz = SevenZWriter::new(writer).map_err(|e| {
-            ArchiverError::invalid_with_source("Failed to create 7z writer", e)
-        })?;
+        let mut sz = SevenZWriter::new(writer)
+            .map_err(|e| ArchiverError::invalid_with_source("Failed to create 7z writer", e))?;
 
         // Honour `--password` for 7z. `sevenz-rust 0.6.1` requires the
         // `aes256` feature for AES-256 encryption; we enabled it in
@@ -500,9 +497,8 @@ impl ArchiveFormat for SevenZBackend {
                     })?;
             } else {
                 let mut file = std::fs::File::open(path).map_err(ArchiverError::Io)?;
-                sz.push_archive_entry(entry, Some(&mut file)).map_err(|e| {
-                    ArchiverError::invalid_with_source("Failed to add file", e)
-                })?;
+                sz.push_archive_entry(entry, Some(&mut file))
+                    .map_err(|e| ArchiverError::invalid_with_source("Failed to add file", e))?;
             }
         }
 
@@ -624,7 +620,14 @@ mod tests {
             compression_level: None,
         };
         SevenZBackend::new()
-            .create(writer, &entries, &opts, None, &NoOpProgress, &Limits::default())
+            .create(
+                writer,
+                &entries,
+                &opts,
+                None,
+                &NoOpProgress,
+                &Limits::default(),
+            )
             .expect("create");
 
         let listed = SevenZBackend::new()

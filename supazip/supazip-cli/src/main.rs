@@ -150,7 +150,14 @@ fn run(cli: Cli) -> Result<(), ArchiverError> {
             entries,
         } => {
             let backend = resolve_backend(&archive, None)?;
-            cmd_extract(backend, &archive, &out, password.as_deref(), &entries, &limits)
+            cmd_extract(
+                backend,
+                &archive,
+                &out,
+                password.as_deref(),
+                &entries,
+                &limits,
+            )
         }
         Command::Create {
             archive,
@@ -236,14 +243,12 @@ fn resolve_backend(
     let ext = archive
         .extension()
         .and_then(|s| s.to_str())
-        .ok_or_else(|| {
-            ArchiverError::UnsupportedFormat {
-                message: format!(
-                    "cannot detect format from '{}' (no extension); pass --format",
-                    archive.display()
-                ),
-                source: None,
-            }
+        .ok_or_else(|| ArchiverError::UnsupportedFormat {
+            message: format!(
+                "cannot detect format from '{}' (no extension); pass --format",
+                archive.display()
+            ),
+            source: None,
         })?;
 
     formats::get_backend(ext).ok_or_else(|| ArchiverError::UnsupportedFormat {
@@ -330,19 +335,26 @@ fn cmd_create(
     let parent = archive.parent().unwrap_or_else(|| Path::new("."));
     std::fs::create_dir_all(parent).map_err(ArchiverError::Io)?;
     let options = CreateOptions {
-        compression_method: "deflate".to_string(),
+        compression_method: compression.to_string(),
         compression_level: None,
     };
-    let shared = std::sync::Arc::new(std::sync::Mutex::new(std::io::Cursor::new(Vec::<u8>::new())));
+    let shared = std::sync::Arc::new(std::sync::Mutex::new(
+        std::io::Cursor::new(Vec::<u8>::new()),
+    ));
     {
         let writer: Box<dyn supazip_core::traits::WriteSeek> =
             Box::new(SharedVecSink::new(shared.clone()));
-        backend.create(writer, files, &options, password, &StderrProgress::new(), limits)?;
+        backend.create(
+            writer,
+            files,
+            &options,
+            password,
+            &StderrProgress::new(),
+            limits,
+        )?;
     }
     let bytes = std::sync::Arc::try_unwrap(shared)
-        .map_err(|_| {
-            ArchiverError::invalid("atomic create: leaked SharedVecSink clones")
-        })?
+        .map_err(|_| ArchiverError::invalid("atomic create: leaked SharedVecSink clones"))?
         .into_inner()
         .map_err(|_| ArchiverError::invalid("atomic create: poisoned SharedVecSink"))?
         .into_inner();
@@ -364,7 +376,12 @@ fn cmd_test(
 ) -> Result<(), ArchiverError> {
     tracing::info!(archive = %archive.display(), backend = backend.name(), "test");
     let file = File::open(archive)?;
-    let ok = backend.test(Box::new(buf_reader(file)), password, &StderrProgress::new(), limits)?;
+    let ok = backend.test(
+        Box::new(buf_reader(file)),
+        password,
+        &StderrProgress::new(),
+        limits,
+    )?;
     if ok {
         println!("OK: {}", archive.display());
         Ok(())
@@ -404,9 +421,10 @@ impl SharedVecSink {
 
 impl std::io::Write for SharedVecSink {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        let mut c = self.shared.lock().map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::Other, format!("mutex poisoned: {e}"))
-        })?;
+        let mut c = self
+            .shared
+            .lock()
+            .map_err(|e| std::io::Error::other(format!("mutex poisoned: {e}")))?;
         c.write(buf)
     }
     fn flush(&mut self) -> std::io::Result<()> {
@@ -416,9 +434,10 @@ impl std::io::Write for SharedVecSink {
 
 impl std::io::Seek for SharedVecSink {
     fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
-        let mut c = self.shared.lock().map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::Other, format!("mutex poisoned: {e}"))
-        })?;
+        let mut c = self
+            .shared
+            .lock()
+            .map_err(|e| std::io::Error::other(format!("mutex poisoned: {e}")))?;
         c.seek(pos)
     }
 }

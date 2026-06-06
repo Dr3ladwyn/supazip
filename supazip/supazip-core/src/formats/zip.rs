@@ -503,7 +503,14 @@ mod tests {
             compression_level: None,
         };
         ZipBackend::new()
-            .create(writer, &entries, &opts, None, &NoOpProgress, &Limits::default())
+            .create(
+                writer,
+                &entries,
+                &opts,
+                None,
+                &NoOpProgress,
+                &Limits::default(),
+            )
             .expect("create");
         // `writer` is consumed by `create`; the archive is now in the dropped
         // `BufWriter` which is gone. To assert the round-trip, do it through
@@ -529,7 +536,14 @@ mod tests {
             compression_level: None,
         };
         ZipBackend::new()
-            .create(writer, &entries, &opts, None, &NoOpProgress, &Limits::default())
+            .create(
+                writer,
+                &entries,
+                &opts,
+                None,
+                &NoOpProgress,
+                &Limits::default(),
+            )
             .expect("create");
 
         let listed = ZipBackend::new()
@@ -574,7 +588,14 @@ mod tests {
         let file = std::fs::File::create(&archive).expect("create archive");
         let writer: Box<dyn WriteSeek> = Box::new(BufWriter::new(file));
         ZipBackend::new()
-            .create(writer, &entries, &opts, None, &NoOpProgress, &Limits::default())
+            .create(
+                writer,
+                &entries,
+                &opts,
+                None,
+                &NoOpProgress,
+                &Limits::default(),
+            )
             .expect("create");
 
         let listed = ZipBackend::new()
@@ -638,7 +659,14 @@ mod tests {
             let file = std::fs::File::create(&archive).expect("create");
             let writer: Box<dyn WriteSeek> = Box::new(BufWriter::new(file));
             ZipBackend::new()
-                .create(writer, &entries, &opts, None, &NoOpProgress, &Limits::default())
+                .create(
+                    writer,
+                    &entries,
+                    &opts,
+                    None,
+                    &NoOpProgress,
+                    &Limits::default(),
+                )
                 .expect("create");
 
             let listed = ZipBackend::new()
@@ -791,7 +819,10 @@ mod tests {
             .expect("list with pwd");
         assert_eq!(listed.len(), 2);
         for entry in &listed {
-            assert!(entry.encrypted, "AES-encrypted entry should be flagged: {entry:?}");
+            assert!(
+                entry.encrypted,
+                "AES-encrypted entry should be flagged: {entry:?}"
+            );
         }
     }
 
@@ -859,7 +890,14 @@ mod tests {
             compression_level: None,
         };
         ZipBackend::new()
-            .create(writer, &entries, &opts, None, &NoOpProgress, &Limits::default())
+            .create(
+                writer,
+                &entries,
+                &opts,
+                None,
+                &NoOpProgress,
+                &Limits::default(),
+            )
             .expect("create");
 
         let listed = ZipBackend::new()
