@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: "SupaZip roadmap"
+    url: https://github.com/<owner>/SupaZip/blob/main/ROADMAP.md
+    about: "12-month plan from 0.2.0 to 1.0.0"
