@@ -64,6 +64,15 @@ if (-not $NoFmt) {
     if ($LASTEXITCODE -ne 0) { throw "cargo fmt failed" }
 }
 
+if ($env:SUPAAZIP_CI_NO_DESIGN -ne "1") {
+    $designScript = Join-Path (Split-Path -Parent $PSCommandPath) "ci-design.ps1"
+    if (Test-Path $designScript) {
+        & $designScript
+    } else {
+        Write-Host "==> design checks: skipped (scripts/ci-design.ps1 not found)"
+    }
+}
+
 if (-not $NoClippy) {
     Write-Host "==> cargo clippy"
     & cargo clippy @cargoFlags -p supazip-core -p supazip-cli --no-deps -- -D warnings

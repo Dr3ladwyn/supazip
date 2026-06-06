@@ -55,6 +55,16 @@ jobs:
         working-directory: supazip
         run: cargo fmt --all -- --check
 
+      - name: Design tokens and i18n sync check
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run design sync checks
+        working-directory: supazip
+        run: |
+          python design/scripts/check_tokens.py
+          python design/scripts/check_i18n.py
+
   gui:
     name: GUI build (Linux)
     runs-on: ubuntu-latest
