@@ -1,0 +1,14 @@
+PackageIdentifier: SupaZip.SupaZip
+PackageVersion: 1.0.0
+PackageName: SupaZip
+PackageUrl: https://github.com/<owner>/supazip
+Publisher: SupaZip contributors
+License: MIT OR Apache-2.0
+ShortDescription: Cross-platform archive manager for 7z and ZIP
+Installers:
+  - Architecture: x64
+    InstallerType: zip
+    InstallerUrl: https://github.com/<owner>/supazip/releases/download/v1.0.0/supazip-cli-x86_64-pc-windows-msvc.exe.zip
+    InstallerSha256: PLACEHOLDER
+ManifestType: singleton
+ManifestVersion: 1.0.0

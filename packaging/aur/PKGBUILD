@@ -1,0 +1,27 @@
+# Maintainer: <your name> <your email>
+pkgname=supazip
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="Cross-platform archive manager for 7z and ZIP"
+arch=('x86_64' 'aarch64')
+url="https://github.com/<owner>/supazip"
+license=('MIT' 'Apache-2.0')
+depends=('gcc-libs')
+makedepends=('cargo' 'rust')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/<owner>/supazip/archive/v$pkgver.tar.gz")
+sha256sums=('PLACEHOLDER')
+
+build() {
+  cd "$pkgname-$pkgver/supazip"
+  cargo build --release --locked -p supazip-cli
+}
+
+package() {
+  cd "$pkgname-$pkgver/supazip"
+  install -Dm755 target/release/supazip-cli "$pkgdir/usr/bin/supazip"
+  install -Dm644 ../../LICENSE-MIT "$pkgdir/usr/share/licenses/$pkgname/LICENSE-MIT"
+  # completions
+  install -Dm644 supazip-cli/completions/supazip.bash "$pkgdir/usr/share/bash-completion/completions/supazip"
+  install -Dm644 supazip-cli/completions/_supazip "$pkgdir/usr/share/zsh/site-functions/_supazip"
+  install -Dm644 supazip-cli/completions/supazip.fish "$pkgdir/usr/share/fish/vendor_completions.d/supazip.fish"
+}
