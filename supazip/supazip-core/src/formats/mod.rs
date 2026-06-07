@@ -98,7 +98,11 @@ pub(crate) fn safe_join(base: &Path, entry: &str) -> Result<PathBuf, ArchiverErr
     if entry.is_empty() {
         return Err(crate::error::ArchiverError::invalid("empty entry name"));
     }
-    if entry.contains("..") {
+    // Only reject ".." as a complete path component, not substrings like "foo..bar"
+    let p = Path::new(entry);
+    if p.components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
         return Err(crate::error::ArchiverError::invalid(format!(
             "unsafe path: path traversal in {entry:?}"
         )));
@@ -209,6 +213,14 @@ mod tests {
     fn safe_join_rejects_empty() {
         let base = Path::new("/tmp/work");
         assert!(safe_join(base, "").is_err());
+    }
+
+    #[test]
+    fn safe_join_accepts_dotdot_in_filename() {
+        let base = Path::new("/tmp/out");
+        let result = safe_join(base, "foo..bar.txt");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), PathBuf::from("/tmp/out/foo..bar.txt"));
     }
 
     #[test]
