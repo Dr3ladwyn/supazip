@@ -4,6 +4,17 @@ All notable changes to SupaZip are documented in this file. Versions follow
 [Semantic Versioning](https://semver.org/). The first published release is
 `0.1.0`.
 
+## [1.0.0] - 2027-06-XX
+
+### Security
+- `SECURITY.md`: disclosure policy (90-day coordinated disclosure), contact email, scope (all crates, packaging, CI), supported versions table, security-related design decisions (resource limits, path-traversal, atomic writes, cancellation).
+
+### Changed
+- `README.md`: marked as production-ready; removed skeleton language. Added installation section for Homebrew, AUR, winget, scoop, Nix, Docker, and crates.io. Updated project status table (all rows "Done").
+- `docs/announce-1.0.md`: release announcement template for blog and Rust forum.
+- All backends tested, fuzzed, and audited; zero P0/P1 bugs in RC period.
+- Version bump: `supazip-core`, `supazip-cli`, `supazip-gui` to `1.0.0`.
+
 ## [0.5.0] - 2027-02-XX
 
 ### Added
