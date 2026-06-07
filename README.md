@@ -1,5 +1,7 @@
 # SupaZip
 
+[![codecov](https://codecov.io/gh/<owner>/supazip/branch/master/graph/badge.svg)](https://codecov.io/gh/<owner>/supazip)
+
 A cross-platform archive manager for **7z** and **ZIP**, written in Rust.
 The same engine powers a desktop GUI and a CLI; both front-ends behave
 identically because they share a single core crate.
@@ -215,10 +217,13 @@ SupaZip/
 ├── CHANGELOG.md           # per-release changes
 ├── .github/
 │   └── workflows/
-│       └── ci.yml         # GitHub Actions: build, test, fmt, clippy on windows-latest
+│       ├── ci.yml         # GitHub Actions: build, test, fmt, clippy on windows-latest
+│       └── coverage.yml   # cargo-llvm-cov + Codecov + 80% threshold
 ├── scripts/
 │   ├── ci.sh              # POSIX local CI entry point
-│   └── ci.ps1             # Windows PowerShell counterpart
+│   ├── ci.ps1             # Windows PowerShell counterpart
+│   ├── build-reproducible.sh   # reproducible build (POSIX)
+│   └── build-reproducible.ps1  # reproducible build (Windows)
 ├── .cursor/               # Cursor rules, skills, MCP config
 │   ├── rules/             # 5 role rules (stack, architect, code, debug, ask)
 │   ├── skills/            # workspace map + memory-bank workflow

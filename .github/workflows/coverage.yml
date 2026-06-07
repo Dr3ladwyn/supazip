@@ -1,0 +1,38 @@
+name: coverage
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  coverage:
+    name: Code coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+          components: llvm-tools
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - uses: Swatinem/rust-cache@v2
+      - name: Run coverage
+        run: |
+          cargo llvm-cov --workspace --locked --lcov --output-path lcov.info -- \
+            --ignore-rust-version
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: lcov.info
+          fail_ci_if_error: true
+          token: ${{ secrets.CODECOV_TOKEN }}
+      - name: Check threshold (80%)
+        run: |
+          COV=$(cargo llvm-cov --workspace --locked --no-report --summary-only 2>&1 | grep 'TOTAL' | awk '{print $NF}' | tr -d '%')
+          echo "Coverage: $COV%"
+          if [ "$(echo "$COV < 80" | bc)" -eq 1 ]; then
+            echo "::error::Coverage $COV% is below 80% threshold"
+            exit 1
+          fi
