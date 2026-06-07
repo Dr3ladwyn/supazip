@@ -170,7 +170,7 @@ pub struct CwdGuard {
 }
 
 impl CwdGuard {
-    fn new(dir: tempfile::TempDir) -> std::io::Result<Self> {
+    pub fn new(dir: tempfile::TempDir) -> std::io::Result<Self> {
         let lock = chdir_lock().lock().unwrap_or_else(|e| e.into_inner());
         let previous = std::env::current_dir()?;
         std::env::set_current_dir(dir.path())?;
