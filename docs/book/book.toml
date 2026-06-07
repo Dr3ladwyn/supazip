@@ -1,0 +1,12 @@
+[book]
+title = "SupaZip"
+authors = ["SupaZip contributors"]
+language = "en"
+src = "src"
+
+[build]
+build-dir = "build"
+
+[output.html]
+default-theme = "dark"
+preferred-dark-theme = "ayu"
