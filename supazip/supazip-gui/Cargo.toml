@@ -21,7 +21,17 @@ tracing = "0.1"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "signal"] }
 
+# Dev-deps for 0.3.0 workstreams (WS-D recent files, WS-G property tests).
+# `dirs` resolves the per-platform data-local dir for the recent-files JSON.
+# `serde` / `serde_json` / `chrono` are re-declared as direct dev-deps so the
+# test target does not rely on transitive resolution through `eframe` /
+# `supazip-core`. They are *not* runtime dependencies in 0.3.0 — the recent
+# files feature lands in a later workstream and must declare them properly.
 [dev-dependencies]
 tempfile = "3"
 zip = { version = "2", features = ["chrono"] }
 tokio = { version = "1", features = ["fs", "rt-multi-thread", "macros", "signal"] }
+dirs = "5"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
