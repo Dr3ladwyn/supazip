@@ -44,6 +44,8 @@ tracing = "0.1"
 tar = "0.4"
 flate2 = "1"
 lzma-rs = "0.3"
+# WS-A (m0.5.0): TOML loader for i18n string files.
+toml = "0.8"
 
 [dev-dependencies]
 tempfile = "3"

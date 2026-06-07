@@ -1,5 +1,6 @@
 pub mod error;
 pub mod formats;
+pub mod i18n;
 pub mod traits;
 
 pub use error::ArchiverError;
