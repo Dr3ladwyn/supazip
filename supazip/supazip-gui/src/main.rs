@@ -11,7 +11,10 @@ use eframe::egui;
 use supazip_core::traits::ProgressState;
 use supazip_core::{formats, Limits};
 
-use supazip_gui::{AppController, EngineEvent, OpenEntry};
+use supazip_gui::context_menu::{EntryAction, EntryContextAction};
+use supazip_gui::{
+    dialogs, dnd, AppController, EngineEvent, OpenEntry, PasswordOpKind, PasswordTarget,
+};
 
 // ---------------------------------------------------------------------------
 // App: thin eframe wrapper around AppController.
@@ -27,12 +30,82 @@ impl eframe::App for App {
         // Drain engine events first so the UI reflects the latest state.
         self.ctrl.drain();
 
+        // Drag-and-drop: forward dropped paths to the controller before
+        // drawing the panels. The returned list carries the paths that
+        // were actually opened; we spawn one worker per path so the
+        // standard open pipeline handles it.
+        let opened = dnd::handle_dropped_files(ui.ctx(), &mut self.ctrl);
+        for path in opened {
+            self.spawn_list(path);
+        }
+
+        // Visual hint: a full-window overlay while the cursor is
+        // carrying a file over the window. Rendered after the panels
+        // so it sits on top of them.
+        let is_hovering_drop = ui
+            .ctx()
+            .data(|d| d.get_temp::<bool>(dnd::HOVERING_KEY).unwrap_or(false));
+        if is_hovering_drop {
+            dnd::render_drop_overlay(ui.ctx());
+        }
+
         egui::Panel::top("toolbar").show_inside(ui, |ui| {
             ui.horizontal(|ui| {
                 let busy = self.ctrl.state().busy;
                 if ui.add_enabled(!busy, egui::Button::new("Open…")).clicked() {
                     self.open_dialog();
                 }
+                // WS-D: "Recent ▾" dropdown — 10 most-recent paths.
+                // Disabled when the persisted list is empty.
+                let recent = self.ctrl.state().recent.clone();
+                let recent_label = if recent.is_empty() {
+                    "Recent ▾".to_string()
+                } else {
+                    format!("Recent ▾ ({})", recent.len())
+                };
+                let recent_btn =
+                    ui.add_enabled(!busy && !recent.is_empty(), egui::Button::new(recent_label));
+                if recent_btn.clicked() {
+                    ui.memory_mut(|mem| mem.toggle_popup(egui::Id::new("recent_menu")));
+                }
+                egui::popup::popup_below_widget(
+                    ui,
+                    egui::Id::new("recent_menu"),
+                    &recent_btn,
+                    egui::PopupCloseBehavior::CloseOnClickOutside,
+                    |ui| {
+                        ui.set_min_width(320.0);
+                        if recent.is_empty() {
+                            ui.label("(no recent files)");
+                        } else {
+                            // Lazy-prune missing files once when the menu
+                            // opens. The pruned list is then used for the
+                            // menu contents; the new state is written back
+                            // through `apply(EngineEvent::Done("…"))` is
+                            // overkill — we just call the helper directly.
+                            for entry in &recent {
+                                let label = entry.path.display().to_string();
+                                if ui.button(&label).clicked() {
+                                    let p = entry.path.clone();
+                                    ui.memory_mut(|mem| mem.close_popup());
+                                    if p.exists() {
+                                        self.spawn_list(p);
+                                    } else {
+                                        self.ctrl.apply(EngineEvent::Error(format!(
+                                            "missing: {}",
+                                            p.display()
+                                        )));
+                                    }
+                                }
+                            }
+                            ui.separator();
+                            if ui.button("Clear recent").clicked() {
+                                self.clear_recent_clicked();
+                                ui.memory_mut(|mem| mem.close_popup());
+                            }
+                        }
+                    },
+                );
                 let can_extract = self.ctrl.state().open_archive.is_some() && !busy;
                 if ui
                     .add_enabled(can_extract, egui::Button::new("Extract"))
@@ -83,7 +156,18 @@ impl eframe::App for App {
                             ui.end_row();
                             for (i, e) in oa.entries.iter().enumerate() {
                                 ui.monospace(i.to_string());
-                                ui.label(&e.name);
+                                let name_response = ui.add(
+                                    egui::Label::new(&e.name)
+                                        .selectable(false)
+                                        .sense(egui::Sense::click()),
+                                );
+                                name_response.context_menu(|ui| {
+                                    if let Some(action) =
+                                        supazip_gui::context_menu::show_entry_context_menu(ui, e)
+                                    {
+                                        self.dispatch_entry_action(action);
+                                    }
+                                });
                                 ui.monospace(format!("{} B", e.size));
                                 ui.label(if e.encrypted { "yes" } else { "-" });
                                 ui.end_row();
@@ -150,6 +234,16 @@ impl App {
         self.spawn_test(oa.path);
     }
 
+    /// Empty the recent-files list and persist. Best-effort: a write
+    /// failure shows up as a non-blocking `EngineEvent::Error` so the
+    /// user knows the clear did not stick on disk.
+    fn clear_recent_clicked(&mut self) {
+        if let Err(e) = self.ctrl.clear_recent() {
+            self.ctrl
+                .apply(EngineEvent::Error(format!("clear recent: {e}")));
+        }
+    }
+
     fn spawn_list(&mut self, path: PathBuf) {
         let tx = self.ctrl.engine_sender();
         let cancel = self.ctrl.cancel_handle();
@@ -200,6 +294,64 @@ impl App {
             let _ = tx.send(ev);
         });
     }
+
+    /// Handle a context-menu click on an entry. The controller records
+    /// the intent in state (busy / status) for every variant; the GUI
+    /// additionally spawns a worker for the extract variants.
+    fn dispatch_entry_action(&mut self, action: EntryContextAction) {
+        match action.kind {
+            EntryAction::ExtractHere(dest) | EntryAction::ExtractTo(dest) => {
+                let Some(oa) = self.ctrl.state().open_archive.clone() else {
+                    return;
+                };
+                let entries = vec![action.entry_name.clone()];
+                let dest_for_spawn = dest.clone();
+
+                // Let the controller decide whether to open the password
+                // dialog (WS-E: encrypted archive + ExtractTo) or to
+                // record the extract intent. If the dialog was opened, we
+                // do NOT spawn a worker yet — the user has to submit a
+                // password first, which `password_dialog_submitted` handles.
+                self.ctrl.dispatch_entry_action(action);
+                if self.ctrl.password_dialog_ref().visible {
+                    return;
+                }
+
+                // Apply the EngineEvent::Extract so the state-machine
+                // tests see the intent without a worker.
+                self.ctrl.apply(EngineEvent::Extract {
+                    entries: entries.clone(),
+                    dest: dest_for_spawn.clone(),
+                    password: None,
+                });
+                self.spawn_extract_entries(oa.path, dest_for_spawn, entries);
+            }
+            EntryAction::TestEntry | EntryAction::CopyPath => {
+                // No worker thread needed: status update only. The
+                // clipboard write happened inside `show_entry_context_menu`.
+                self.ctrl.dispatch_entry_action(action);
+            }
+        }
+    }
+
+    fn spawn_extract_entries(&mut self, archive: PathBuf, out: PathBuf, entries: Vec<String>) {
+        let tx = self.ctrl.engine_sender();
+        let cancel = self.ctrl.cancel_handle();
+        let limits = *self.ctrl.limits();
+        self.ctrl.mark_busy(format!(
+            "extracting {} entr{} from {} to {}…",
+            entries.len(),
+            if entries.len() == 1 { "y" } else { "ies" },
+            archive.display(),
+            out.display()
+        ));
+        // The EngineEvent::Extract was applied by the caller; do not
+        // double-apply it here.
+        std::thread::spawn(move || {
+            let ev = run_extract_entries_blocking(&archive, &out, &entries, &cancel, &limits);
+            let _ = tx.send(ev);
+        });
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -235,6 +387,21 @@ fn run_extract_blocking(
     cancel: &Arc<ProgressState>,
     limits: &Limits,
 ) -> EngineEvent {
+    run_extract_entries_blocking(archive, out, &[], cancel, limits)
+}
+
+/// Extract a specific list of entry names. An empty `entries` slice is
+/// the "extract all" sentinel used by the toolbar; the context menu always
+/// passes a non-empty list. Entry names that do not exist in the archive
+/// are silently skipped by the core — the controller does not currently
+/// differentiate that from a clean extract.
+fn run_extract_entries_blocking(
+    archive: &std::path::Path,
+    out: &std::path::Path,
+    entries: &[String],
+    cancel: &Arc<ProgressState>,
+    limits: &Limits,
+) -> EngineEvent {
     let ext = archive.extension().and_then(|s| s.to_str()).unwrap_or("");
     let Some(backend) = formats::get_backend(ext) else {
         return EngineEvent::Error(format!("unsupported: {ext}"));
@@ -243,10 +410,11 @@ fn run_extract_blocking(
         Ok(f) => f,
         Err(e) => return EngineEvent::Error(format!("open: {e}")),
     };
+    let entry_refs: Vec<&str> = entries.iter().map(String::as_str).collect();
     match backend.extract(
         Box::new(std::io::BufReader::new(file)),
         out,
-        &[],
+        &entry_refs,
         None,
         cancel,
         limits,

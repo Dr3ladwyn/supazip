@@ -21,6 +21,23 @@ use std::sync::Arc;
 use supazip_core::traits::ProgressState;
 use supazip_core::{formats, ArchiveEntry, Limits};
 
+pub mod dialogs;
+pub use dialogs::{PasswordDialogState, PasswordTarget};
+
+pub mod dnd;
+
+pub use dnd::handle_dropped_files;
+
+pub mod recent;
+
+pub use recent::{RecentEntry, MAX_ENTRIES};
+
+pub mod context_menu;
+pub use context_menu::{EntryAction, EntryContextAction};
+
+pub mod menubar;
+pub use menubar::{MenuAction, MenuActionOutcome};
+
 /// One opened archive: where it lives, which backend parsed it, and the
 /// entries the GUI is currently showing.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,6 +74,17 @@ pub struct AppState {
     pub open_archive: Option<OpenArchive>,
     pub status: String,
     pub busy: bool,
+    /// Persistent recent-files list, most-recent first, capped at
+    /// [`MAX_ENTRIES`]. Loaded on startup and rewritten every time a new
+    /// entry is pushed (see [`AppController::apply`]).
+    pub recent: Vec<RecentEntry>,
+    /// WS-F: when `true`, the GUI renders a debug overlay that dumps the
+    /// current `AppState`. Toggled through the `View` menu.
+    pub show_debug: bool,
+    /// WS-F: when `true`, the GUI renders the About modal. Set by
+    /// `dispatch_menu_action(MenuAction::About)` and cleared when the
+    /// modal is closed.
+    pub show_about: bool,
 }
 
 impl Default for AppState {
@@ -65,6 +93,9 @@ impl Default for AppState {
             open_archive: None,
             status: "Open an archive to get started.".to_string(),
             busy: false,
+            recent: recent::load(),
+            show_debug: false,
+            show_about: false,
         }
     }
 }
@@ -79,11 +110,49 @@ pub enum EngineEvent {
         backend_name: &'static str,
         entries: Vec<OpenEntry>,
     },
+    /// The GUI accepted an extract request from the user (e.g. a context
+    /// menu item). The controller records the intent in state — the worker
+    /// that actually performs the extraction is dispatched by the GUI
+    /// front-end, mirroring the toolbar `Extract` button.
+    Extract {
+        entries: Vec<String>,
+        dest: PathBuf,
+        password: Option<String>,
+    },
     /// An operation finished successfully; carries a free-form status line.
     Done(String),
     /// The engine produced an error; the GUI shows it in the status bar and
     /// re-enables the toolbar.
     Error(String),
+    /// The engine needs a password to continue. The controller opens the
+    /// password dialog; the GUI then re-dispatches the matching operation
+    /// (see [`PasswordOpKind`]).
+    PasswordRequired { path: PathBuf, kind: PasswordOpKind },
+}
+
+/// Distinguishes the operation that hit a password prompt. The GUI uses
+/// this to know which worker to re-spawn after the user submits a value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PasswordOpKind {
+    /// `Open` / list on a header-encrypted archive.
+    Open,
+    /// Extract from an encrypted archive.
+    Extract,
+    /// Create a new encrypted archive.
+    Create,
+    /// Test (integrity check) on an encrypted archive.
+    Test,
+}
+
+impl PasswordOpKind {
+    /// Map the kind to the matching [`PasswordTarget`] variant.
+    pub fn into_target(self, path: PathBuf) -> PasswordTarget {
+        match self {
+            PasswordOpKind::Open | PasswordOpKind::Test => PasswordTarget::Open(path),
+            PasswordOpKind::Extract => PasswordTarget::Extract(path),
+            PasswordOpKind::Create => PasswordTarget::Create(path),
+        }
+    }
 }
 
 /// Headless controller: state + channel. The eframe `App` in `main.rs`
@@ -94,6 +163,9 @@ pub struct AppController {
     engine_rx: Receiver<EngineEvent>,
     cancel_flag: Arc<ProgressState>,
     limits: Limits,
+    /// WS-E: modal password dialog state. Hidden by default; the GUI
+    /// opens it when an `EngineEvent::PasswordRequired` arrives.
+    password_dialog: PasswordDialogState,
 }
 
 impl Default for AppController {
@@ -105,6 +177,7 @@ impl Default for AppController {
             engine_rx,
             cancel_flag: Arc::new(ProgressState::new()),
             limits: Limits::default(),
+            password_dialog: PasswordDialogState::default(),
         }
     }
 }
@@ -122,6 +195,27 @@ impl AppController {
     /// Borrow the current state.
     pub fn state(&self) -> &AppState {
         &self.state
+    }
+
+    /// Mutably borrow the password dialog state. The eframe `App` uses
+    /// this in its `ui` method to render the modal and pull a submitted
+    /// password out of the returned `Option`.
+    pub fn password_dialog(&mut self) -> &mut PasswordDialogState {
+        &mut self.password_dialog
+    }
+
+    /// Borrow the password dialog state immutably (e.g. for tests that
+    /// only assert the visibility / target).
+    pub fn password_dialog_ref(&self) -> &PasswordDialogState {
+        &self.password_dialog
+    }
+
+    /// Open the password dialog for `target`. Convenience wrapper used by
+    /// both the `PasswordRequired` event handler and the `ExtractTo`
+    /// context-menu action when the archive is already known to be
+    /// encrypted.
+    pub fn request_password(&mut self, target: PasswordTarget) {
+        self.password_dialog.open(target);
     }
 
     /// Borrow the sender so the GUI can spawn workers that report back.
@@ -150,13 +244,38 @@ impl AppController {
                 entries,
             } => {
                 self.state.open_archive = Some(OpenArchive {
-                    path,
+                    path: path.clone(),
                     backend_name,
                     entries,
                 });
                 self.state.busy = false;
                 self.state.status = "loaded".to_string();
                 self.cancel_flag = Arc::new(ProgressState::new());
+                // WS-D: successful open → push to recent files (cap 10,
+                // dedup, JSON-persisted). Best-effort: an I/O error on
+                // `save` is logged and swallowed so the open still
+                // succeeds from the user's point of view.
+                recent::push(&mut self.state.recent, RecentEntry::now(path));
+                if let Err(e) = recent::save(&self.state.recent) {
+                    log::warn!("failed to persist recent files: {e}");
+                }
+            }
+            EngineEvent::Extract {
+                entries,
+                dest,
+                password: _,
+            } => {
+                // The GUI front-end turns this into a worker thread that
+                // calls into the engine. The controller records the
+                // intent in the status line so tests can assert on state
+                // without a window.
+                self.state.busy = true;
+                self.state.status = format!(
+                    "extracting {} entr{} to {}…",
+                    entries.len(),
+                    if entries.len() == 1 { "y" } else { "ies" },
+                    dest.display()
+                );
             }
             EngineEvent::Done(msg) => {
                 self.state.busy = false;
@@ -168,6 +287,118 @@ impl AppController {
                 self.state.status = format!("error: {msg}");
                 self.cancel_flag = Arc::new(ProgressState::new());
             }
+            EngineEvent::PasswordRequired { path, kind } => {
+                self.state.busy = false;
+                self.state.status = "password required".to_string();
+                self.cancel_flag = Arc::new(ProgressState::new());
+                self.password_dialog.open(kind.into_target(path));
+            }
+        }
+    }
+
+    /// Handle one right-click context-menu action. Pure state mutation:
+    /// the worker thread (if any) is the caller's responsibility. Each
+    /// branch mirrors what `main.rs` does for the toolbar buttons.
+    pub fn dispatch_entry_action(&mut self, action: EntryContextAction) {
+        match action.kind {
+            EntryAction::ExtractHere(dest) => {
+                self.apply(EngineEvent::Extract {
+                    entries: vec![action.entry_name],
+                    dest,
+                    password: None,
+                });
+            }
+            EntryAction::ExtractTo(dest) => {
+                // WS-E: if the open archive is encrypted, do not extract
+                // directly — open the password dialog so the user can
+                // supply the key. The GUI's `ui` loop reads the dialog's
+                // submission and re-dispatches the extract worker with
+                // the entered password.
+                if let Some(oa) = &self.state.open_archive {
+                    if oa.entries.iter().any(|e| e.encrypted) {
+                        self.request_password(PasswordTarget::Extract(oa.path.clone()));
+                        self.state.status = format!(
+                            "encrypted archive — password required for {}",
+                            oa.path.display()
+                        );
+                        return;
+                    }
+                }
+                // Same code path as ExtractHere in 0.3.0; the variant
+                // is kept distinct so 0.4 can split them.
+                self.apply(EngineEvent::Extract {
+                    entries: vec![action.entry_name],
+                    dest,
+                    password: None,
+                });
+            }
+            EntryAction::TestEntry => {
+                // TODO(gui): `ArchiveFormat` does not expose a per-entry
+                // test today. The toolbar "Test" button runs the whole
+                // archive through `ArchiveFormat::test`; until the core
+                // API gains `test_entry`, the context-menu item records
+                // the intent in the status line and does not spawn a
+                // worker.
+                self.state.status =
+                    format!("Test entry: {} (TODO: backend support)", action.entry_name);
+            }
+            EntryAction::CopyPath => {
+                // The actual `egui::Context::copy_text` call lives in
+                // `context_menu::show_entry_context_menu` (where the
+                // egui context is available). The status line is the
+                // visible confirmation.
+                self.state.status = format!("Copied: {}", action.entry_name);
+            }
+        }
+    }
+
+    /// WS-F: handle one menu-bar action that can be applied without a
+    /// window. Returns the variants that the GUI front-end still has to
+    /// execute (file pickers, `ViewportCommand::Close`) — those need a
+    /// live `egui::Context` and are not part of the headless controller.
+    ///
+    /// The split mirrors `dispatch_entry_action`: the controller records
+    /// the intent and the GUI performs the side effects.
+    pub fn dispatch_menu_action(&mut self, action: MenuAction) -> MenuActionOutcome {
+        match action {
+            MenuAction::ToggleDebug => {
+                self.state.show_debug = !self.state.show_debug;
+                let s = self.state.show_debug;
+                self.state.status = format!("debug overlay: {}", if s { "on" } else { "off" });
+                MenuActionOutcome::Done
+            }
+            MenuAction::Close => match self.close_archive() {
+                true => MenuActionOutcome::Done,
+                false => MenuActionOutcome::Noop,
+            },
+            MenuAction::About => {
+                self.state.show_about = true;
+                MenuActionOutcome::Done
+            }
+            // The remaining variants need rfd dialogs or a viewport
+            // command. The GUI front-end handles them after collecting
+            // the action list from `menubar::show_menu_bar`.
+            MenuAction::Open
+            | MenuAction::Extract
+            | MenuAction::Create
+            | MenuAction::Test
+            | MenuAction::Quit => MenuActionOutcome::Gui,
+        }
+    }
+
+    /// Close the currently open archive: drop the entry list and update
+    /// the status line. Returns `true` if there was an open archive to
+    /// close, `false` if the menu fired on an empty window.
+    pub fn close_archive(&mut self) -> bool {
+        if self.state.open_archive.is_some() {
+            self.state.open_archive = None;
+            self.state.busy = false;
+            self.state.status = "closed".to_string();
+            self.cancel_flag = Arc::new(ProgressState::new());
+            true
+        } else {
+            self.state.status = "no archive open".to_string();
+            false
         }
     }
 
@@ -176,6 +407,28 @@ impl AppController {
     /// to set up the precondition for a `Done`/`Error` event.
     pub fn mark_busy(&mut self, status: impl Into<String>) {
         self.state.busy = true;
+        self.state.status = status.into();
+    }
+
+    /// Begin opening `path` for listing. The controller enters the busy
+    /// state with a status line; the caller (the eframe `App`) is expected
+    /// to spawn a worker that calls [`Self::list_archive_blocking`] and
+    /// feeds the result back through [`Self::apply`]. Returns `true` when
+    /// the request was accepted (i.e. the path is non-empty).
+    ///
+    /// This is the entry point used by drag-and-drop and any future
+    /// "open this file" path that does not go through [`rfd::FileDialog`].
+    pub fn open_archive(&mut self, path: PathBuf) -> bool {
+        if path.as_os_str().is_empty() {
+            return false;
+        }
+        self.mark_busy(format!("opening {}…", path.display()));
+        true
+    }
+
+    /// Borrow the current status line. Used by the DnD handler and the
+    /// view layer to surface non-blocking hints to the user.
+    pub fn set_status(&mut self, status: impl Into<String>) {
         self.state.status = status.into();
     }
 
@@ -194,6 +447,29 @@ impl AppController {
     /// Current resource limits. Workers pass this into the engine.
     pub fn limits(&self) -> &Limits {
         &self.limits
+    }
+
+    /// Empty the recent-files list and rewrite the on-disk JSON. Used by
+    /// the toolbar "Clear recent" menu item. Returns the I/O error from
+    /// `save` if the file could not be written; the in-memory list is
+    /// cleared regardless.
+    pub fn clear_recent(&mut self) -> std::io::Result<()> {
+        recent::clear(&mut self.state.recent);
+        recent::save(&self.state.recent)
+    }
+
+    /// Drop any recent entries whose file is missing on disk, then
+    /// persist. Returns the number of pruned entries. Used by the toolbar
+    /// "Recent" menu when it opens, for lazy pruning without a background
+    /// thread.
+    pub fn prune_recent_missing(&mut self) -> usize {
+        let removed = recent::prune_missing(&mut self.state.recent);
+        if removed > 0 {
+            if let Err(e) = recent::save(&self.state.recent) {
+                log::warn!("failed to persist recent files after prune: {e}");
+            }
+        }
+        removed
     }
 
     /// List the entries in `archive_path` synchronously (no worker thread)
@@ -347,6 +623,64 @@ mod tests {
     }
 
     #[test]
+    fn listed_event_pushes_to_recent_files() {
+        // WS-D: a successful open must record the path in the recent
+        // list, dedup, and respect the cap. We use real tempdir files
+        // so the `size_bytes` field is non-None and `RecentEntry::now`
+        // does not silently fall back to a `None` size.
+        let tmp = tempdir().expect("tempdir");
+        let a = tmp.path().join("a.zip");
+        let b = tmp.path().join("b.zip");
+        std::fs::write(&a, b"x").expect("write a");
+        std::fs::write(&b, b"yy").expect("write b");
+
+        let mut ctrl = AppController::default();
+        assert!(ctrl.state().recent.is_empty());
+
+        ctrl.apply(EngineEvent::Listed {
+            path: a.clone(),
+            backend_name: "zip",
+            entries: vec![],
+        });
+        assert_eq!(ctrl.state().recent.len(), 1);
+        assert_eq!(ctrl.state().recent[0].path, a);
+
+        // Re-opening the same path must dedup, not duplicate.
+        ctrl.apply(EngineEvent::Listed {
+            path: a.clone(),
+            backend_name: "zip",
+            entries: vec![],
+        });
+        assert_eq!(ctrl.state().recent.len(), 1);
+
+        ctrl.apply(EngineEvent::Listed {
+            path: b.clone(),
+            backend_name: "zip",
+            entries: vec![],
+        });
+        assert_eq!(ctrl.state().recent.len(), 2);
+        // Most-recent first.
+        assert_eq!(ctrl.state().recent[0].path, b);
+        assert_eq!(ctrl.state().recent[1].path, a);
+    }
+
+    #[test]
+    fn clear_recent_empties_list_and_persists() {
+        let tmp = tempdir().expect("tempdir");
+        let a = tmp.path().join("a.zip");
+        std::fs::write(&a, b"x").expect("write a");
+        let mut ctrl = AppController::default();
+        ctrl.apply(EngineEvent::Listed {
+            path: a,
+            backend_name: "zip",
+            entries: vec![],
+        });
+        assert!(!ctrl.state().recent.is_empty());
+        ctrl.clear_recent().expect("clear_recent");
+        assert!(ctrl.state().recent.is_empty());
+    }
+
+    #[test]
     fn drain_consumes_all_pending_events() {
         let mut ctrl = AppController::default();
         let tx = ctrl.engine_sender();
@@ -366,5 +700,172 @@ mod tests {
         // We only assert that the limits round-trip; their inner fields
         // are not part of the public API yet.
         assert_eq!(ctrl.limits().max_archive_size, limits.max_archive_size);
+    }
+
+    #[test]
+    fn dispatch_extract_here_marks_busy_with_status() {
+        let mut ctrl = AppController::default();
+        ctrl.dispatch_entry_action(EntryContextAction {
+            entry_name: "hello.txt".into(),
+            kind: EntryAction::ExtractHere(PathBuf::from("/tmp/out")),
+        });
+        let s = ctrl.state();
+        assert!(s.busy);
+        assert!(s.status.contains("hello.txt"), "status: {}", s.status);
+        assert!(s.status.contains("/tmp/out"), "status: {}", s.status);
+    }
+
+    #[test]
+    fn dispatch_extract_to_takes_same_path_as_extract_here() {
+        let mut ctrl = AppController::default();
+        ctrl.dispatch_entry_action(EntryContextAction {
+            entry_name: "data.bin".into(),
+            kind: EntryAction::ExtractTo(PathBuf::from("/var/tmp")),
+        });
+        let s = ctrl.state();
+        assert!(s.busy);
+        assert!(s.status.contains("data.bin"));
+        assert!(s.status.contains("/var/tmp"));
+    }
+
+    #[test]
+    fn dispatch_test_entry_records_todo_in_status() {
+        let mut ctrl = AppController::default();
+        ctrl.dispatch_entry_action(EntryContextAction {
+            entry_name: "deep/path.txt".into(),
+            kind: EntryAction::TestEntry,
+        });
+        let s = ctrl.state();
+        assert!(!s.busy, "TestEntry is a no-op until core gains test_entry");
+        assert!(s.status.contains("Test entry"));
+        assert!(s.status.contains("deep/path.txt"));
+        assert!(s.status.contains("TODO"));
+    }
+
+    #[test]
+    fn dispatch_copy_path_sets_status_and_does_not_busy() {
+        let mut ctrl = AppController::default();
+        ctrl.dispatch_entry_action(EntryContextAction {
+            entry_name: "src/main.rs".into(),
+            kind: EntryAction::CopyPath,
+        });
+        let s = ctrl.state();
+        assert!(!s.busy);
+        assert!(s.status.contains("Copied"));
+        assert!(s.status.contains("src/main.rs"));
+    }
+
+    #[test]
+    fn apply_extract_event_marks_busy() {
+        let mut ctrl = AppController::default();
+        ctrl.apply(EngineEvent::Extract {
+            entries: vec!["a.txt".into(), "b.txt".into()],
+            dest: PathBuf::from("/tmp/out"),
+            password: None,
+        });
+        let s = ctrl.state();
+        assert!(s.busy);
+        assert!(s.status.contains("2 entries"));
+        assert!(s.status.contains("/tmp/out"));
+    }
+
+    #[test]
+    fn password_dialog_starts_invisible_and_empty() {
+        let ctrl = AppController::default();
+        let d = ctrl.password_dialog_ref();
+        assert!(!d.visible);
+        assert!(d.password.is_empty());
+        assert!(d.target.is_none());
+    }
+
+    #[test]
+    fn apply_password_required_opens_dialog() {
+        let mut ctrl = AppController::default();
+        ctrl.mark_busy("opening…");
+        ctrl.apply(EngineEvent::PasswordRequired {
+            path: PathBuf::from("/tmp/secret.7z"),
+            kind: PasswordOpKind::Open,
+        });
+        let d = ctrl.password_dialog_ref();
+        assert!(d.visible, "PasswordRequired should open the dialog");
+        assert!(!ctrl.state().busy, "controller should not stay busy");
+        let target = d.target.as_ref().expect("dialog has target");
+        assert_eq!(target.path(), PathBuf::from("/tmp/secret.7z").as_path());
+    }
+
+    #[test]
+    fn request_password_opens_dialog_for_target() {
+        let mut ctrl = AppController::default();
+        ctrl.request_password(PasswordTarget::Extract(PathBuf::from("/a.zip")));
+        assert!(ctrl.password_dialog_ref().visible);
+        assert!(matches!(
+            ctrl.password_dialog_ref().target,
+            Some(PasswordTarget::Extract(_))
+        ));
+    }
+
+    #[test]
+    fn dispatch_extract_to_on_encrypted_archive_opens_password_dialog() {
+        let mut ctrl = AppController::default();
+        // Simulate a loaded archive with one encrypted entry.
+        ctrl.apply(EngineEvent::Listed {
+            path: PathBuf::from("/tmp/locked.7z"),
+            backend_name: "7z",
+            entries: vec![OpenEntry {
+                name: "secret.txt".into(),
+                size: 42,
+                encrypted: true,
+            }],
+        });
+        assert!(!ctrl.password_dialog_ref().visible);
+        ctrl.dispatch_entry_action(EntryContextAction {
+            entry_name: "secret.txt".into(),
+            kind: EntryAction::ExtractTo(PathBuf::from("/tmp/out")),
+        });
+        assert!(ctrl.password_dialog_ref().visible, "ExtractTo must open dialog on encrypted archive");
+        assert!(!ctrl.state().busy, "no extract worker should be queued yet");
+    }
+
+    #[test]
+    fn dispatch_extract_to_on_plain_archive_skips_password_dialog() {
+        let mut ctrl = AppController::default();
+        ctrl.apply(EngineEvent::Listed {
+            path: PathBuf::from("/tmp/plain.zip"),
+            backend_name: "zip",
+            entries: vec![OpenEntry {
+                name: "readme.txt".into(),
+                size: 10,
+                encrypted: false,
+            }],
+        });
+        ctrl.dispatch_entry_action(EntryContextAction {
+            entry_name: "readme.txt".into(),
+            kind: EntryAction::ExtractTo(PathBuf::from("/tmp/out")),
+        });
+        assert!(!ctrl.password_dialog_ref().visible);
+        assert!(ctrl.state().busy);
+    }
+
+    #[test]
+    fn password_op_kind_into_target_maps_each_variant() {
+        let p = PathBuf::from("/x.7z");
+        assert!(matches!(
+            PasswordOpKind::Open.into_target(p.clone()),
+            PasswordTarget::Open(_)
+        ));
+        assert!(matches!(
+            PasswordOpKind::Extract.into_target(p.clone()),
+            PasswordTarget::Extract(_)
+        ));
+        assert!(matches!(
+            PasswordOpKind::Create.into_target(p.clone()),
+            PasswordTarget::Create(_)
+        ));
+        // Test and Open both surface as Open for the dialog (test reuses
+        // the open listing code path).
+        assert!(matches!(
+            PasswordOpKind::Test.into_target(p),
+            PasswordTarget::Open(_)
+        ));
     }
 }
