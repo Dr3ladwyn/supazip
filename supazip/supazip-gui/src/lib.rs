@@ -876,7 +876,10 @@ mod tests {
             entry_name: "secret.txt".into(),
             kind: EntryAction::ExtractTo(PathBuf::from("/tmp/out")),
         });
-        assert!(ctrl.password_dialog_ref().visible, "ExtractTo must open dialog on encrypted archive");
+        assert!(
+            ctrl.password_dialog_ref().visible,
+            "ExtractTo must open dialog on encrypted archive"
+        );
         assert!(!ctrl.state().busy, "no extract worker should be queued yet");
     }
 
