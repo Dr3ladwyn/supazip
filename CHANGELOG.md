@@ -4,6 +4,25 @@ All notable changes to SupaZip are documented in this file. Versions follow
 [Semantic Versioning](https://semver.org/). The first published release is
 `0.1.0`.
 
+## [0.4.0] - 2026-06-07
+
+### Security
+- `cargo-audit` + `cargo-deny` CI workflows (daily cron + push/PR).
+- 0 vulnerabilities, 572 crates scanned.
+- License allow-list extended for OPL/CC0/MPL/OFL/Ubuntu-font (egui dependencies).
+- `deny.toml` with advisories, bans, licenses, sources checks.
+- macOS code-signing + notarization in release.yml (conditional on secrets).
+
+### Changed
+- `safe_join` fixed: now rejects `..` only as a path-component, not as a substring.
+- CLI `--output json|yaml|text` for `list` and `test` commands.
+- `ArchiveEntry` now derives `Serialize` (serde).
+- `cargo-llvm-cov` coverage workflow with 80% threshold gate (Codecov badge in README).
+- Reproducible build scripts (`scripts/build-reproducible.sh`, `build-reproducible.ps1`).
+- OS matrix expanded to windows + ubuntu + macos (6 CI jobs).
+- `clap_complete` for bash/zsh/fish/powershell/elvish (static files in `supazip-cli/completions/`).
+- Property-based metadata invariant proptests (5 tests in `supazip-core/tests/proptests/metadata.rs`).
+
 ## [0.3.0] - 2026-06-07
 
 ### Added
