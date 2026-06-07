@@ -30,6 +30,7 @@ sevenz-rust = { version = "0.6", features = ["aes256"] }
 zip = { version = "2.4", features = ["chrono", "zstd"] }
 brotli = "8"
 thiserror = "2"
+serde = { version = "1", features = ["derive"] }
 chrono = { version = "0.4", features = ["serde"] }
 tokio = { version = "1", features = ["fs", "io-util", "rt-multi-thread", "signal"] }
 log = "0.4"

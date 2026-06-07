@@ -14,6 +14,9 @@ use supazip_core::error::ArchiverError;
 use supazip_core::traits::{CreateOptions, Limits, ProgressCallback};
 use supazip_core::{formats, ArchiveFormat};
 
+mod output;
+use output::OutputFormat;
+
 #[derive(Parser, Debug)]
 #[command(
     name = "supazip",
@@ -23,6 +26,9 @@ use supazip_core::{formats, ArchiveFormat};
     version
 )]
 struct Cli {
+    #[arg(long, global = true, default_value = "text", value_enum)]
+    output: OutputFormat,
+
     #[command(subcommand)]
     command: Command,
 }
@@ -146,10 +152,11 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> Result<(), ArchiverError> {
     let limits = effective_limits();
+    let fmt = cli.output;
     match cli.command {
         Command::List { archive, password } => {
             let backend = resolve_backend(&archive, None)?;
-            cmd_list(backend, &archive, password.as_deref(), &limits)
+            cmd_list(backend, &archive, password.as_deref(), &limits, fmt)
         }
         Command::Extract {
             archive,
@@ -187,7 +194,7 @@ fn run(cli: Cli) -> Result<(), ArchiverError> {
         }
         Command::Test { archive, password } => {
             let backend = resolve_backend(&archive, None)?;
-            cmd_test(backend, &archive, password.as_deref(), &limits)
+            cmd_test(backend, &archive, password.as_deref(), &limits, fmt)
         }
         Command::Completions { shell } => {
             let mut cmd = Cli::command();
@@ -280,10 +287,17 @@ fn cmd_list(
     archive: &Path,
     password: Option<&str>,
     limits: &Limits,
+    fmt: OutputFormat,
 ) -> Result<(), ArchiverError> {
     tracing::info!(archive = %archive.display(), backend = backend.name(), "list");
     let file = File::open(archive)?;
     let entries = backend.list(Box::new(buf_reader(file)), password, limits)?;
+
+    if fmt != OutputFormat::Text {
+        output::print(fmt, &entries)
+            .map_err(|e| ArchiverError::invalid(format!("output serialization failed: {e}")))?;
+        return Ok(());
+    }
 
     // Plain-text table: name, size, compressed, encrypted.
     println!(
@@ -388,6 +402,7 @@ fn cmd_test(
     archive: &Path,
     password: Option<&str>,
     limits: &Limits,
+    fmt: OutputFormat,
 ) -> Result<(), ArchiverError> {
     tracing::info!(archive = %archive.display(), backend = backend.name(), "test");
     let file = File::open(archive)?;
@@ -397,6 +412,21 @@ fn cmd_test(
         &StderrProgress::new(),
         limits,
     )?;
+
+    if fmt != OutputFormat::Text {
+        #[derive(serde::Serialize)]
+        struct TestResult { ok: bool }
+        output::print(fmt, &TestResult { ok })
+            .map_err(|e| ArchiverError::invalid(format!("output serialization failed: {e}")))?;
+        if !ok {
+            return Err(ArchiverError::invalid(format!(
+                "integrity check failed for {}",
+                archive.display()
+            )));
+        }
+        return Ok(());
+    }
+
     if ok {
         println!("OK: {}", archive.display());
         Ok(())

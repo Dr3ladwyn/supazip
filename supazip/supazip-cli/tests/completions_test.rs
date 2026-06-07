@@ -1,7 +1,13 @@
 use std::process::Command;
 
+fn supazip_bin() -> String {
+    // When running under `cargo test`, the binary is built by the test harness.
+    // We use `cargo run` to ensure the latest code is compiled and executed.
+    String::from("cargo")
+}
+
 fn run_completions(shell: &str) -> Vec<u8> {
-    let output = Command::new("cargo")
+    let output = Command::new(supazip_bin())
         .args(["run", "-p", "supazip-cli", "--", "completions", shell])
         .output()
         .expect("failed to execute supazip completions");

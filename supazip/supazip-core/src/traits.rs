@@ -1,5 +1,6 @@
 use crate::error::ArchiverError;
 use chrono::{DateTime, Utc};
+use serde::Serialize;
 use std::io::{Read, Seek, Write};
 use std::sync::mpsc::Sender;
 use std::sync::{
@@ -163,6 +164,7 @@ impl ProgressCallback for ChannelProgress {
 
 /// Metadata for a single entry inside an archive. Returned by
 /// [`ArchiveFormat::list`] and accepted by the GUI's file-list view.
+#[derive(Debug, Clone, Serialize)]
 pub struct ArchiveEntry {
     pub name: String,
     pub path: String,
@@ -173,22 +175,6 @@ pub struct ArchiveEntry {
     pub compression_method: String,
     pub crc32: Option<u32>,
     pub encrypted: bool,
-}
-
-impl std::fmt::Debug for ArchiveEntry {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ArchiveEntry")
-            .field("name", &self.name)
-            .field("path", &self.path)
-            .field("is_dir", &self.is_dir)
-            .field("size", &self.size)
-            .field("compressed_size", &self.compressed_size)
-            .field("modified", &self.modified)
-            .field("compression_method", &self.compression_method)
-            .field("crc32", &self.crc32)
-            .field("encrypted", &self.encrypted)
-            .finish()
-    }
 }
 
 /// Compression method requested for a `create` call.
