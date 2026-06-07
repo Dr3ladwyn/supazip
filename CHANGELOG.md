@@ -4,6 +4,26 @@ All notable changes to SupaZip are documented in this file. Versions follow
 [Semantic Versioning](https://semver.org/). The first published release is
 `0.1.0`.
 
+## [0.5.0] - 2027-02-XX
+
+### Added
+- **Hand-rolled plural runtime** (`supazip-core/src/i18n.rs`): `Locale` enum (en/ru/de), `plural_form()` with CLDR rules, `I18nStrings` TOML loader with dot-path lookup and plural-aware `get_plural()`.
+- **German (de) locale** fully translated (78 keys, 0 TODO markers). `check_i18n.py` validates 3-locale parity.
+- **GUI settings persistence**: `Settings` struct serialized as JSON to `dirs::config_local_dir()/supazip/settings.json`. Fields: language, max_archive_size, recent_files_limit, show_debug_overlay.
+- **GUI settings window**: egui floating window with language ComboBox, max archive DragValue, recent limit, debug overlay checkbox, Save button.
+- **mdbook documentation**: 18-file book (`docs/book/`) covering user-guide, dev-guide, and security-model. Dark theme (ayu).
+- **Man pages** via `clap_mangen`: `supazip man --out-dir <DIR>` generates `supazip.1`.
+- **WCAG 2.1 AA audit** (`docs/a11y-audit.md`): 17 PASS, 2 PARTIAL (egui framework limitations), 0 FAIL.
+- **Screen reader smoke tests** (`docs/a11y-testing.md`): 10-step checklists for NVDA, VoiceOver, Orca.
+
+### Changed
+- `supazip-core/Cargo.toml`: added `toml = "0.8"` dependency for i18n loader.
+- `supazip-cli/Cargo.toml`: added `clap_mangen = "0.2"` dependency.
+
+### Known limitations
+- egui 0.34 does not expose accessibility tree on desktop builds; screen reader support is best-effort.
+- mdbook not published to GitHub Pages (local-only per decision).
+
 ## [0.4.0] - 2026-06-07
 
 ### Security

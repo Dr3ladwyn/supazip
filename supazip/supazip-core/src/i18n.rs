@@ -42,10 +42,7 @@ pub fn plural_form(locale: Locale, n: u32) -> PluralForm {
                 PluralForm::One
             } else if (2..=4).contains(&mod10) && !(12..=14).contains(&mod100) {
                 PluralForm::Few
-            } else if mod10 == 0
-                || (5..=9).contains(&mod10)
-                || (11..=14).contains(&mod100)
-            {
+            } else if mod10 == 0 || (5..=9).contains(&mod10) || (11..=14).contains(&mod100) {
                 PluralForm::Many
             } else {
                 PluralForm::Other

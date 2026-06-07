@@ -208,8 +208,9 @@ fn run(cli: Cli) -> Result<(), ArchiverError> {
             completions::generate_completions(shell, &mut cmd);
             Ok(())
         }
-        Command::Man { out_dir } => man::generate_man_pages(&out_dir)
-            .map_err(|e| ArchiverError::invalid(format!("{e}"))),
+        Command::Man { out_dir } => {
+            man::generate_man_pages(&out_dir).map_err(|e| ArchiverError::invalid(format!("{e}")))
+        }
     }
 }
 

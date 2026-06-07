@@ -41,8 +41,7 @@ impl eframe::App for App {
 
         // Menu bar — renders the native-style bar and returns the
         // actions the user triggered this frame (keyboard + clicks).
-        let menu_actions =
-            supazip_gui::menubar::show_menu_bar(ui.ctx(), &mut self.ctrl);
+        let menu_actions = supazip_gui::menubar::show_menu_bar(ui.ctx(), &mut self.ctrl);
         for action in menu_actions {
             self.dispatch_menu_action(action);
         }

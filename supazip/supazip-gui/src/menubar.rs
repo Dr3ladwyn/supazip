@@ -21,8 +21,8 @@
 //! [`MenuAction::About`]. The remaining actions are returned to the
 //! caller through [`MenuActionOutcome::Gui`].
 
-use eframe::egui;
 use crate::AppController;
+use eframe::egui;
 
 /// All possible top-level menu items. The order matches the order the
 /// items appear in the on-screen menu so the variant index in `Debug` is
