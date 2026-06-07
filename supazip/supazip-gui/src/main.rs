@@ -44,7 +44,7 @@ impl eframe::App for App {
         // so it sits on top of them.
         let is_hovering_drop = ui
             .ctx()
-            .data(|d| d.get_temp::<bool>(dnd::HOVERING_KEY).unwrap_or(false));
+            .data(|d| d.get_temp::<bool>(dnd::hovering_id()).unwrap_or(false));
         if is_hovering_drop {
             dnd::render_drop_overlay(ui.ctx());
         }
