@@ -76,12 +76,12 @@ fn list_json_output() {
     assert_eq!(arr.len(), 3, "expected 3 entries in JSON output");
 
     // Spot-check fields.
-    let names: Vec<&str> = arr
-        .iter()
-        .map(|v| v["name"].as_str().unwrap())
-        .collect();
+    let names: Vec<&str> = arr.iter().map(|v| v["name"].as_str().unwrap()).collect();
     assert!(names.contains(&"hello.txt"), "missing hello.txt: {names:?}");
-    assert!(names.contains(&"greet/hi.txt"), "missing greet/hi.txt: {names:?}");
+    assert!(
+        names.contains(&"greet/hi.txt"),
+        "missing greet/hi.txt: {names:?}"
+    );
     assert!(names.contains(&"data.bin"), "missing data.bin: {names:?}");
 }
 
@@ -113,7 +113,10 @@ fn list_yaml_output() {
 
     // YAML output should contain entry names as keys.
     assert!(stdout.contains("hello.txt"), "missing hello.txt in YAML");
-    assert!(stdout.contains("greet/hi.txt"), "missing greet/hi.txt in YAML");
+    assert!(
+        stdout.contains("greet/hi.txt"),
+        "missing greet/hi.txt in YAML"
+    );
     assert!(stdout.contains("data.bin"), "missing data.bin in YAML");
     // Should look like a YAML list (starts with `- `).
     assert!(

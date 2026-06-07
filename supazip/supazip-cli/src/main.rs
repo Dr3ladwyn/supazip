@@ -415,7 +415,9 @@ fn cmd_test(
 
     if fmt != OutputFormat::Text {
         #[derive(serde::Serialize)]
-        struct TestResult { ok: bool }
+        struct TestResult {
+            ok: bool,
+        }
         output::print(fmt, &TestResult { ok })
             .map_err(|e| ArchiverError::invalid(format!("output serialization failed: {e}")))?;
         if !ok {
