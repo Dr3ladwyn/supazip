@@ -42,6 +42,9 @@ pub use context_menu::{EntryAction, EntryContextAction};
 pub mod menubar;
 pub use menubar::{MenuAction, MenuActionOutcome};
 
+pub mod settings;
+pub mod settings_window;
+
 /// One opened archive: where it lives, which backend parsed it, and the
 /// entries the GUI is currently showing.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -89,6 +92,10 @@ pub struct AppState {
     /// `dispatch_menu_action(MenuAction::About)` and cleared when the
     /// modal is closed.
     pub show_about: bool,
+    /// WS-F/WS-G: persistent settings loaded from `settings.json`.
+    pub settings: settings::Settings,
+    /// WS-G: when `true`, the GUI renders the settings window.
+    pub show_settings: bool,
 }
 
 impl Default for AppState {
@@ -100,6 +107,8 @@ impl Default for AppState {
             recent: recent::load(),
             show_debug: false,
             show_about: false,
+            settings: settings::Settings::load(),
+            show_settings: false,
         }
     }
 }
@@ -395,6 +404,10 @@ impl AppController {
             },
             MenuAction::About => {
                 self.state.show_about = true;
+                MenuActionOutcome::Done
+            }
+            MenuAction::Settings => {
+                self.state.show_settings = true;
                 MenuActionOutcome::Done
             }
             // The remaining variants need rfd dialogs or a viewport

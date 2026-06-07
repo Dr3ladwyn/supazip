@@ -39,6 +39,14 @@ impl eframe::App for App {
             self.spawn_list(path);
         }
 
+        // Menu bar — renders the native-style bar and returns the
+        // actions the user triggered this frame (keyboard + clicks).
+        let menu_actions =
+            supazip_gui::menubar::show_menu_bar(ui.ctx(), &mut self.ctrl);
+        for action in menu_actions {
+            self.dispatch_menu_action(action);
+        }
+
         // Visual hint: a full-window overlay while the cursor is
         // carrying a file over the window. Rendered after the panels
         // so it sits on top of them.
@@ -190,6 +198,18 @@ impl eframe::App for App {
         if let Some(pwd) = dialogs::show_password_dialog(ui.ctx(), self.ctrl.password_dialog()) {
             self.password_dialog_submitted(pwd);
         }
+
+        // WS-G: render the settings window when the user opened it from
+        // the File menu.
+        let mut show_settings = self.ctrl.state().show_settings;
+        if show_settings {
+            supazip_gui::settings_window::show_settings_window(
+                ui.ctx(),
+                &mut self.ctrl.state_mut().settings,
+                &mut show_settings,
+            );
+            self.ctrl.state_mut().show_settings = show_settings;
+        }
     }
 }
 
@@ -200,6 +220,27 @@ impl App {
             .pick_file()
         {
             self.spawn_list(path);
+        }
+    }
+
+    /// Dispatch a menu-bar action through the controller, then handle
+    /// the GUI-side effects that the headless controller cannot perform
+    /// (file pickers, viewport commands).
+    fn dispatch_menu_action(&mut self, action: supazip_gui::MenuAction) {
+        use supazip_gui::{MenuAction, MenuActionOutcome};
+        match self.ctrl.dispatch_menu_action(action) {
+            MenuActionOutcome::Done | MenuActionOutcome::Noop => {}
+            MenuActionOutcome::Gui => match action {
+                MenuAction::Open => self.open_dialog(),
+                MenuAction::Extract => self.extract_clicked(),
+                MenuAction::Create => self.create_clicked(),
+                MenuAction::Test => self.test_clicked(),
+                MenuAction::Quit => {
+                    // TODO: eframe 0.34 quit — for now just request close.
+                    // ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+                _ => {}
+            },
         }
     }
 

@@ -21,6 +21,7 @@
 //! [`MenuAction::About`]. The remaining actions are returned to the
 //! caller through [`MenuActionOutcome::Gui`].
 
+use eframe::egui;
 use crate::AppController;
 
 /// All possible top-level menu items. The order matches the order the
@@ -44,6 +45,8 @@ pub enum MenuAction {
     Quit,
     /// View → Debug overlay (checkbox; no accelerator)
     ToggleDebug,
+    /// File → Settings… (no accelerator)
+    Settings,
 }
 
 impl MenuAction {
@@ -58,6 +61,7 @@ impl MenuAction {
         MenuAction::About,
         MenuAction::Quit,
         MenuAction::ToggleDebug,
+        MenuAction::Settings,
     ];
 }
 
@@ -105,6 +109,11 @@ pub fn show_menu_bar(ctx: &egui::Context, ctrl: &mut AppController) -> Vec<MenuA
                 }
                 if ui.button("Test integrity").clicked() {
                     actions.push(MenuAction::Test);
+                    ui.close_menu();
+                }
+                ui.separator();
+                if ui.button("Settings\u{2026}").clicked() {
+                    actions.push(MenuAction::Settings);
                     ui.close_menu();
                 }
                 ui.separator();
@@ -169,7 +178,7 @@ mod tests {
         // Every variant must Debug-format with a distinct tag so a
         // snapshot test or a panic message is unambiguous.
         let tags: Vec<String> = MenuAction::ALL.iter().map(|a| format!("{a:?}")).collect();
-        assert_eq!(tags.len(), 8);
+        assert_eq!(tags.len(), 9);
         // No two variants share a Debug string.
         let mut sorted = tags.clone();
         sorted.sort();
@@ -186,13 +195,14 @@ mod tests {
         assert_eq!(format!("{:?}", MenuAction::About), "About");
         assert_eq!(format!("{:?}", MenuAction::Quit), "Quit");
         assert_eq!(format!("{:?}", MenuAction::ToggleDebug), "ToggleDebug");
+        assert_eq!(format!("{:?}", MenuAction::Settings), "Settings");
     }
 
     #[test]
-    fn menu_action_all_iterates_eight() {
+    fn menu_action_all_iterates_nine() {
         // Guard against accidentally dropping a variant from the
         // declaration list.
-        assert_eq!(MenuAction::ALL.len(), 8);
+        assert_eq!(MenuAction::ALL.len(), 9);
     }
 
     #[test]
