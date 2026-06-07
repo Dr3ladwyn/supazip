@@ -46,3 +46,15 @@ lzma-rs = "0.3"
 
 [dev-dependencies]
 tempfile = "3"
+# WS-H (m0.3.0): criterion 0.5 drives the engine-level list / extract /
+# create / test benches under `benches/engine.rs`. The `html_reports`
+# feature enables the standalone HTML output the CI bench job uploads
+# as an artefact (see `docs/benchmarks.md`).
+criterion = { version = "0.5", features = ["html_reports"] }
+# WS-G (m0.3.0): property-based round-trip tests for every backend.
+# proptest is dev-only; no runtime cost for CLI / GUI consumers.
+proptest = "1"
+
+[[bench]]
+name = "engine"
+harness = false

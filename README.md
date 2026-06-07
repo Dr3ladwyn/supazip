@@ -142,6 +142,10 @@ cargo test -p supazip-core -p supazip-cli
 cargo clippy -p supazip-core -p supazip-cli --no-deps -- -D warnings
 cargo fmt --all -- --check
 
+# Criterion engine bench (requires rustc 1.92; baseline stored under
+# supazip-core/benches/baselines/, see docs/benchmarks.md):
+cargo bench -p supazip-core --bench engine
+
 # Or use the unified local CI entry point:
 scripts/ci.sh                   # POSIX
 .\scripts\ci.ps1                # Windows PowerShell
@@ -149,7 +153,9 @@ scripts/ci.sh                   # POSIX
 
 The `ci.sh` / `ci.ps1` scripts run `build`, `test`, `fmt --check`, and
 `clippy -D warnings` in order, on the same set of crates the GitHub Actions
-workflow exercises.
+workflow exercises. The Criterion bench lives in a separate
+[documented workflow](docs/benchmarks.md) and is run by a dedicated
+`bench` CI job (informational, not a hard gate, during the 0.3.0 cycle).
 
 ## Security & production notes
 
