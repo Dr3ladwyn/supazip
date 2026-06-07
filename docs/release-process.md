@@ -7,21 +7,42 @@ separately in [`docs/publishing.md`](publishing.md).
 
 The pipeline emits a draft GitHub Release with:
 
-- the `supazip-cli` binary for `windows-latest` / `ubuntu-latest` /
-  `macos-latest` × `x86_64` (+ `aarch64-apple-darwin`),
+- the `supazip-cli` binary for 5 targets:
+  `x86_64-pc-windows-msvc`, `x86_64-unknown-linux-gnu`,
+  `x86_64-apple-darwin`, `aarch64-apple-darwin`,
+  `aarch64-unknown-linux-gnu` (cross-compiled),
 - a `SHA256SUMS` file with one line per binary,
 - a `SHA256SUMS.minisign` detached signature over the SHA-256 file,
-- a CycloneDX `supazip-cli.spdx.json` SBOM (best-effort).
+- a CycloneDX `supazip-cli.spdx.json` SBOM generated from `Cargo.lock`.
 
 The release is **draft** — a maintainer reviews the notes, the SHA-256
 list, the signature, and the SBOM, then clicks *Publish* in the GitHub
 Releases UI. Nothing is auto-published.
 
-> **Status (0.3.0, WS-I):** the pipeline is in place but **not yet
-> triggered**. The 0.3.0 release is a crates.io dry-run; the first
-> `v0.3.0+` tag that exercises the workflow is `v0.3.0-rc.1` (or
-> later). The public key, the secrets, and the runbook are therefore
-> `placeholder` / `TBD` for now.
+> **Status (1.0-rc.1, WS-H):** the pipeline is finalized with 5 build
+> targets, SBOM generation, and minisign signing. It is exercised on
+> every `v*.*.*` tag push.
+
+## Release pipeline overview
+
+```text
+tag vX.Y.Z pushed
+  └─► build job (matrix × 5 targets)
+        ├─ x86_64-pc-windows-msvc     (windows-latest)
+        ├─ x86_64-unknown-linux-gnu   (ubuntu-latest)
+        ├─ x86_64-apple-darwin        (macos-latest)
+        ├─ aarch64-apple-darwin       (macos-latest)
+        └─ aarch64-unknown-linux-gnu  (ubuntu-latest, cross)
+        each uploads binary as workflow artifact
+  └─► sign job (depends on build)
+        ├─ download all binaries → dist/
+        ├─ sha256sum → SHA256SUMS
+        ├─ minisign sign → SHA256SUMS.minisig
+        ├─ anchore/sbom-action → dist/supazip-cli.spdx.json
+        └─ softprops/action-gh-release → draft GitHub Release
+  └─► maintainer reviews draft → clicks Publish
+  └─► post-release: verify checksums, signature, SBOM, smoke-test
+```
 
 ## Pre-release checklist
 
@@ -125,7 +146,10 @@ minisign -Vm SHA256SUMS.minisig -P "$(curl -fsSL https://raw.githubusercontent.c
 # 3. Verify the per-binary checksums.
 sha256sum --ignore-missing -c SHA256SUMS
 
-# 4. (Optional) Smoke-test the CLI on your platform.
+# 4. Validate the SBOM (requires cyclonedx-cli).
+cyclonedx-cli validate --input-file supazip-cli.spdx.json --input-format json
+
+# 5. (Optional) Smoke-test the CLI on your platform.
 ./supazip-cli-x86_64-unknown-linux-gnu --version
 ```
 
@@ -145,6 +169,22 @@ Trusted comment: SupaZip release vX.Y.Z
 
 A failing run prints the offending line and exits non-zero — do **not**
 run the binary in that case.
+
+### Reproducible build verification
+
+For platforms where `scripts/build-reproducible.sh` is available:
+
+```bash
+# Clone the tagged commit, build, compare checksums.
+git checkout v0.3.0
+scripts/build-reproducible.sh
+# Compare the locally-built binary against the release artefact:
+sha256sum supazip-cli-<target>
+# The hash must match the corresponding line in SHA256SUMS.
+```
+
+If the hashes do not match, the binary was not built from the exact
+tagged commit, or the build environment differs. File an issue.
 
 ## Why minisign and not GPG / cosign
 
@@ -168,6 +208,8 @@ After the maintainer publishes the draft:
 
    ```bash
    ./supazip-cli-x86_64-unknown-linux-gnu --version
+   ./supazip-cli-aarch64-unknown-linux-gnu --version
+   ./supazip-cli-x86_64-apple-darwin --version
    ./supazip-cli-aarch64-apple-darwin --version
    supazip-cli-x86_64-pc-windows-msvc.exe --version
    ```
@@ -188,18 +230,28 @@ After the maintainer publishes the draft:
    `assets/minisign.pub` matches the fingerprint published in the
    release notes and the README's "Verifying releases" section.
 
-## Open questions for 0.4.0
+5. (Optional) Verify reproducibility — build from the tagged commit
+   and compare SHA-256 hashes against the release `SHA256SUMS`:
 
-These follow-ups are inherited from the 0.3.0 milestone doc; they are
-not blockers for the 0.3.0 release.
+   ```bash
+   git checkout <tag>
+   scripts/build-reproducible.sh
+   sha256sum supazip-cli-<target>
+   # Must match the corresponding line in SHA256SUMS.
+   ```
 
-- A CI smoke job that re-verifies `SHA256SUMS.minisig` against
-  `assets/minisign.pub` for the latest release on every push to
-  `master`. The job is `continue-on-error: true` in 0.3.0; promoted
-  to a hard gate in 1.0-rc.1.
-- A `script/check-minisign-pub.sh` that fails CI if
-  `assets/minisign.pub` is committed without the expected
-  `untrusted comment:` and `trusted comment:` lines, or with a
-  key number that is not in the README's rotation table.
-- Migrate to cosign / sigstore once the project ships OIDC provenance
-  (1.0-rc.1, Distribution track).
+## Open questions (inherited from 0.3.0, resolved by 1.0-rc.1)
+
+The following items were tracked from the 0.3.0 milestone and are
+addressed or superseded as of the 1.0-rc.1 (WS-H) work:
+
+- **CI smoke job for signature verification** — deferred to 1.0.0
+  milestone. A `continue-on-error: true` job that re-verifies
+  `SHA256SUMS.minisig` on every push to `master` is planned but not
+  yet implemented.
+- **`script/check-minisign-pub.sh`** — deferred to 1.0.0. Validates
+  the public key file format and key-number cross-reference.
+- **Migrate to cosign / sigstore** — re-evaluated for 1.0.0. The
+  current minisign setup is sufficient for the 1.0-rc.1 release
+  pipeline. OIDC provenance via cosign is tracked as a future
+  enhancement if the project adopts GitHub's artifact attestations.
