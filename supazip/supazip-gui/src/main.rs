@@ -434,7 +434,12 @@ impl App {
                     .state()
                     .open_archive
                     .as_ref()
-                    .map(|oa| oa.path.parent().map(|p| p.to_path_buf()).unwrap_or_default())
+                    .map(|oa| {
+                        oa.path
+                            .parent()
+                            .map(|p| p.to_path_buf())
+                            .unwrap_or_default()
+                    })
                     .unwrap_or_else(|| path.parent().map(|p| p.to_path_buf()).unwrap_or_default());
                 self.spawn_extract_with_password(path, dest, Some(password));
             }
@@ -533,13 +538,12 @@ fn run_extract_entries_blocking(
         Err(e) => return EngineEvent::Error(format!("open: {e}")),
     };
     let entry_refs: Vec<&str> = entries.iter().map(String::as_str).collect();
-    let cb: &dyn supazip_core::traits::ProgressCallback = &**progress;
     match backend.extract(
         Box::new(std::io::BufReader::new(file)),
         out,
         &entry_refs,
         password,
-        cb,
+        progress,
         limits,
     ) {
         Ok(()) => EngineEvent::Done(format!("extracted to {}", out.display())),
@@ -567,7 +571,7 @@ fn run_create_blocking(
         compression_method: "deflate".to_string(),
         compression_level: None,
     };
-    let cb: &dyn supazip_core::traits::ProgressCallback = &**progress;
+    let cb: &dyn supazip_core::traits::ProgressCallback = progress;
     match backend.create(writer, inputs, &opts, password, cb, limits) {
         Ok(()) => EngineEvent::Done(format!("created {}", target.display())),
         Err(e) => map_engine_error(PasswordOpKind::Create, target, "create", e),
@@ -588,7 +592,7 @@ fn run_test_blocking(
         Ok(f) => f,
         Err(e) => return EngineEvent::Error(format!("open: {e}")),
     };
-    let cb: &dyn supazip_core::traits::ProgressCallback = &**progress;
+    let cb: &dyn supazip_core::traits::ProgressCallback = progress;
     match backend.test(
         Box::new(std::io::BufReader::new(file)),
         password,
