@@ -24,6 +24,7 @@ exclude = [
 supazip-core = { path = "../supazip-core", version = "0.4.0" }
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
+clap_mangen = "0.2"
 thiserror = "2"
 tokio = { version = "1", features = ["fs", "rt-multi-thread", "macros", "signal"] }
 log = "0.4"

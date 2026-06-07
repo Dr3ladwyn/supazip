@@ -8,8 +8,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 mod completions;
+mod man;
 
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use supazip_core::error::ArchiverError;
 use supazip_core::traits::{CreateOptions, Limits, ProgressCallback};
 use supazip_core::{formats, ArchiveFormat};
@@ -25,7 +26,7 @@ use output::OutputFormat;
                   See https://github.com/ for the GUI front-end and core engine.",
     version
 )]
-struct Cli {
+pub(crate) struct Cli {
     #[arg(long, global = true, default_value = "text", value_enum)]
     output: OutputFormat,
 
@@ -106,6 +107,12 @@ enum Command {
         /// Target shell.
         #[arg(value_enum)]
         shell: clap_complete::Shell,
+    },
+
+    /// Generate man page.
+    Man {
+        #[arg(long, default_value = ".")]
+        out_dir: std::path::PathBuf,
     },
 }
 
@@ -201,6 +208,8 @@ fn run(cli: Cli) -> Result<(), ArchiverError> {
             completions::generate_completions(shell, &mut cmd);
             Ok(())
         }
+        Command::Man { out_dir } => man::generate_man_pages(&out_dir)
+            .map_err(|e| ArchiverError::invalid(format!("{e}"))),
     }
 }
 
