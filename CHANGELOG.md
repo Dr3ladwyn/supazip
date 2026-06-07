@@ -4,6 +4,31 @@ All notable changes to SupaZip are documented in this file. Versions follow
 [Semantic Versioning](https://semver.org/). The first published release is
 `0.1.0`.
 
+## [0.3.0] - 2026-06-07
+
+### Added
+- **GUI drag-and-drop** via egui builtin `ctx.input(|i| &i.raw.dropped_files)`.
+- **Right-click context menu** on file list rows: Extract here, Extract to, Test entry, Copy path.
+- **Modal progress dialog** with deterministic progress bar and Cancel button.
+- **Virtualized file list** via `egui::ScrollArea::show_rows` (5000+ entries render smoothly).
+- **Recent files** persisted as JSON in `dirs::data_local_dir()/supazip/recent_files.json`, capped at 10.
+- **Password dialog** (modal, show/hide toggle, Enter to submit).
+- **Native menu bar** (File / Edit / View / Help) via eframe `with_menu`; native on macOS, in-app elsewhere.
+- Keyboard shortcuts: `Ctrl+O` / `Ctrl+E` / `Ctrl+W` / `Ctrl+Q`, `F1`.
+- Property-based tests (`proptest`): 5 round-trip invariants covering zip, 7z, tar, tar.gz, tar.xz.
+- Criterion benchmarks: 80 bench IDs across create / list / extract / test × 5 backends × 3 sizes.
+- **GitHub Releases workflow** with minisign-signed checksums and CycloneDX SBOM (matrix: windows, ubuntu, macos × x86_64, aarch64).
+
+### Changed
+- `supazip-gui/Cargo.toml`: `dirs`, `serde`, `serde_json`, `chrono` promoted to runtime `[dependencies]`.
+- `supazip-core/Cargo.toml`: `proptest` and `criterion` added to dev-deps.
+- `proptest` revealed a safe_join over-strictness: rejects any `..` substring, not just `..` path components. Documented in decision log; fix scheduled for 0.4.
+
+### Known limitations
+- Local toolchain rustc 1.88 vs required 1.92 — `cargo check`/`test` skipped locally; CI is the authoritative gate.
+- macOS release artifacts are not code-signed yet (added in 0.4).
+- Wayland drag-and-drop is limited to status-bar hint (full support in 1.1).
+
 ## [0.2.0] - 2026-06-06
 
 ### Added
