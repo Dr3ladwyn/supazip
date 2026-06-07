@@ -182,6 +182,14 @@ impl eframe::App for App {
                 });
             }
         });
+
+        // WS-E: render the modal password dialog. The dialog state lives
+        // on the controller; the GUI owns the egui::Context the modal
+        // needs. If the user submits a value we re-dispatch the operation
+        // that opened the dialog.
+        if let Some(pwd) = dialogs::show_password_dialog(ui.ctx(), self.ctrl.password_dialog()) {
+            self.password_dialog_submitted(pwd);
+        }
     }
 }
 
@@ -245,18 +253,31 @@ impl App {
     }
 
     fn spawn_list(&mut self, path: PathBuf) {
+        self.spawn_list_with_password(path, None);
+    }
+
+    fn spawn_list_with_password(&mut self, path: PathBuf, password: Option<String>) {
         let tx = self.ctrl.engine_sender();
         let cancel = self.ctrl.cancel_handle();
         self.ctrl.mark_busy(format!("opening {}…", path.display()));
         std::thread::spawn(move || {
-            let ev = run_list_blocking(&path, &cancel);
+            let ev = run_list_blocking(&path, password.as_deref());
             let _ = tx.send(ev);
         });
     }
 
     fn spawn_extract(&mut self, archive: PathBuf, out: PathBuf) {
+        self.spawn_extract_with_password(archive, out, None);
+    }
+
+    fn spawn_extract_with_password(
+        &mut self,
+        archive: PathBuf,
+        out: PathBuf,
+        password: Option<String>,
+    ) {
         let tx = self.ctrl.engine_sender();
-        let cancel = self.ctrl.cancel_handle();
+        let progress = self.ctrl.cancel_handle();
         let limits = *self.ctrl.limits();
         self.ctrl.mark_busy(format!(
             "extracting {} to {}…",
@@ -264,13 +285,23 @@ impl App {
             out.display()
         ));
         std::thread::spawn(move || {
-            let ev = run_extract_blocking(&archive, &out, &cancel, &limits);
+            let ev = run_extract_blocking(&archive, &out, password.as_deref(), &progress, &limits);
             let _ = tx.send(ev);
         });
     }
 
     fn spawn_create(&mut self, target: PathBuf, inputs: Vec<PathBuf>) {
+        self.spawn_create_with_password(target, inputs, None);
+    }
+
+    fn spawn_create_with_password(
+        &mut self,
+        target: PathBuf,
+        inputs: Vec<PathBuf>,
+        password: Option<String>,
+    ) {
         let tx = self.ctrl.engine_sender();
+        let progress = self.ctrl.cancel_handle();
         let limits = *self.ctrl.limits();
         self.ctrl.mark_busy(format!(
             "creating {} ({} entries)…",
@@ -278,19 +309,23 @@ impl App {
             inputs.len()
         ));
         std::thread::spawn(move || {
-            let ev = run_create_blocking(&target, &inputs, &limits);
+            let ev = run_create_blocking(&target, &inputs, password.as_deref(), &progress, &limits);
             let _ = tx.send(ev);
         });
     }
 
     fn spawn_test(&mut self, archive: PathBuf) {
+        self.spawn_test_with_password(archive, None);
+    }
+
+    fn spawn_test_with_password(&mut self, archive: PathBuf, password: Option<String>) {
         let tx = self.ctrl.engine_sender();
-        let cancel = self.ctrl.cancel_handle();
+        let progress = self.ctrl.cancel_handle();
         let limits = *self.ctrl.limits();
         self.ctrl
             .mark_busy(format!("testing {}…", archive.display()));
         std::thread::spawn(move || {
-            let ev = run_test_blocking(&archive, &cancel, &limits);
+            let ev = run_test_blocking(&archive, password.as_deref(), &progress, &limits);
             let _ = tx.send(ev);
         });
     }
@@ -335,8 +370,18 @@ impl App {
     }
 
     fn spawn_extract_entries(&mut self, archive: PathBuf, out: PathBuf, entries: Vec<String>) {
+        self.spawn_extract_entries_with_password(archive, out, entries, None);
+    }
+
+    fn spawn_extract_entries_with_password(
+        &mut self,
+        archive: PathBuf,
+        out: PathBuf,
+        entries: Vec<String>,
+        password: Option<String>,
+    ) {
         let tx = self.ctrl.engine_sender();
-        let cancel = self.ctrl.cancel_handle();
+        let progress = self.ctrl.cancel_handle();
         let limits = *self.ctrl.limits();
         self.ctrl.mark_busy(format!(
             "extracting {} entr{} from {} to {}…",
@@ -348,9 +393,65 @@ impl App {
         // The EngineEvent::Extract was applied by the caller; do not
         // double-apply it here.
         std::thread::spawn(move || {
-            let ev = run_extract_entries_blocking(&archive, &out, &entries, &cancel, &limits);
+            let ev = run_extract_entries_blocking(
+                &archive,
+                &out,
+                &entries,
+                password.as_deref(),
+                &progress,
+                &limits,
+            );
             let _ = tx.send(ev);
         });
+    }
+
+    /// Re-dispatch the operation whose password prompt the user just
+    /// answered. The controller stores the target (Open / Extract /
+    /// Create / Test); the GUI is responsible for re-spawning the worker
+    /// with the entered password. For Extract, the cached intent on the
+    /// `Action` is honoured by spawning the entry-list worker again.
+    fn password_dialog_submitted(&mut self, password: String) {
+        let target = self.ctrl.password_dialog().target.take();
+        // Clear the dialog state before doing anything that could re-open
+        // it (avoid a re-entrancy loop if the worker fails again).
+        self.ctrl.password_dialog().visible = false;
+        self.ctrl.password_dialog().password.clear();
+        self.ctrl.password_dialog().show_password = false;
+        self.ctrl.password_dialog().error = None;
+
+        match target {
+            Some(PasswordTarget::Open(path)) => {
+                self.spawn_list_with_password(path, Some(password));
+            }
+            Some(PasswordTarget::Extract(path)) => {
+                // For context-menu / toolbar extract we don't know the
+                // specific entries here; replay through the same code path
+                // the open-archive flow uses for "extract all". The
+                // `EngineEvent::Extract` was applied earlier and the
+                // archive is still loaded.
+                let dest = self
+                    .ctrl
+                    .state()
+                    .open_archive
+                    .as_ref()
+                    .map(|oa| oa.path.parent().map(|p| p.to_path_buf()).unwrap_or_default())
+                    .unwrap_or_else(|| path.parent().map(|p| p.to_path_buf()).unwrap_or_default());
+                self.spawn_extract_with_password(path, dest, Some(password));
+            }
+            Some(PasswordTarget::Create(path)) => {
+                // Create-with-password needs the original input list. The
+                // controller does not currently cache it; the caller is
+                // expected to re-trigger the create flow. As a fallback we
+                // surface a clear status message.
+                self.ctrl.apply(EngineEvent::Error(format!(
+                    "encrypted create: re-pick inputs for {}",
+                    path.display()
+                )));
+            }
+            None => {
+                // Stale submit (e.g. dialog closed programmatically): no-op.
+            }
+        }
     }
 }
 
@@ -358,7 +459,26 @@ impl App {
 // Worker-thread bodies. Plain functions so the App impl above stays small.
 // ---------------------------------------------------------------------------
 
-fn run_list_blocking(path: &std::path::Path, _cancel: &Arc<ProgressState>) -> EngineEvent {
+/// Translate an `ArchiverError` from the engine into a GUI event. Password
+/// errors are mapped to `EngineEvent::PasswordRequired` so the controller
+/// can open the modal dialog and the user can retry with a real key.
+fn map_engine_error(
+    op: PasswordOpKind,
+    path: &std::path::Path,
+    prefix: &str,
+    e: supazip_core::ArchiverError,
+) -> EngineEvent {
+    use supazip_core::ArchiverError as A;
+    match e {
+        A::PasswordRequired | A::WrongPassword => EngineEvent::PasswordRequired {
+            path: path.to_path_buf(),
+            kind: op,
+        },
+        other => EngineEvent::Error(format!("{prefix}: {other}")),
+    }
+}
+
+fn run_list_blocking(path: &std::path::Path, password: Option<&str>) -> EngineEvent {
     let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
     let Some(backend) = formats::get_backend(ext) else {
         return EngineEvent::Error(format!("unsupported: {ext}"));
@@ -369,7 +489,7 @@ fn run_list_blocking(path: &std::path::Path, _cancel: &Arc<ProgressState>) -> En
     };
     match backend.list(
         Box::new(std::io::BufReader::new(file)),
-        None,
+        password,
         &Limits::default(),
     ) {
         Ok(list) => EngineEvent::Listed {
@@ -377,17 +497,18 @@ fn run_list_blocking(path: &std::path::Path, _cancel: &Arc<ProgressState>) -> En
             backend_name: backend.name(),
             entries: list.into_iter().map(OpenEntry::from).collect(),
         },
-        Err(e) => EngineEvent::Error(format!("list: {e}")),
+        Err(e) => map_engine_error(PasswordOpKind::Open, path, "list", e),
     }
 }
 
 fn run_extract_blocking(
     archive: &std::path::Path,
     out: &std::path::Path,
-    cancel: &Arc<ProgressState>,
+    password: Option<&str>,
+    progress: &Arc<ProgressState>,
     limits: &Limits,
 ) -> EngineEvent {
-    run_extract_entries_blocking(archive, out, &[], cancel, limits)
+    run_extract_entries_blocking(archive, out, &[], password, progress, limits)
 }
 
 /// Extract a specific list of entry names. An empty `entries` slice is
@@ -399,7 +520,8 @@ fn run_extract_entries_blocking(
     archive: &std::path::Path,
     out: &std::path::Path,
     entries: &[String],
-    cancel: &Arc<ProgressState>,
+    password: Option<&str>,
+    progress: &Arc<ProgressState>,
     limits: &Limits,
 ) -> EngineEvent {
     let ext = archive.extension().and_then(|s| s.to_str()).unwrap_or("");
@@ -411,22 +533,25 @@ fn run_extract_entries_blocking(
         Err(e) => return EngineEvent::Error(format!("open: {e}")),
     };
     let entry_refs: Vec<&str> = entries.iter().map(String::as_str).collect();
+    let cb: &dyn supazip_core::traits::ProgressCallback = &**progress;
     match backend.extract(
         Box::new(std::io::BufReader::new(file)),
         out,
         &entry_refs,
-        None,
-        cancel,
+        password,
+        cb,
         limits,
     ) {
         Ok(()) => EngineEvent::Done(format!("extracted to {}", out.display())),
-        Err(e) => EngineEvent::Error(format!("extract: {e}")),
+        Err(e) => map_engine_error(PasswordOpKind::Extract, archive, "extract", e),
     }
 }
 
 fn run_create_blocking(
     target: &std::path::Path,
     inputs: &[PathBuf],
+    password: Option<&str>,
+    progress: &Arc<ProgressState>,
     limits: &Limits,
 ) -> EngineEvent {
     let ext = target.extension().and_then(|s| s.to_str()).unwrap_or("");
@@ -442,16 +567,17 @@ fn run_create_blocking(
         compression_method: "deflate".to_string(),
         compression_level: None,
     };
-    let progress = supazip_core::traits::NoOpProgress;
-    match backend.create(writer, inputs, &opts, None, &progress, limits) {
+    let cb: &dyn supazip_core::traits::ProgressCallback = &**progress;
+    match backend.create(writer, inputs, &opts, password, cb, limits) {
         Ok(()) => EngineEvent::Done(format!("created {}", target.display())),
-        Err(e) => EngineEvent::Error(format!("create: {e}")),
+        Err(e) => map_engine_error(PasswordOpKind::Create, target, "create", e),
     }
 }
 
 fn run_test_blocking(
     archive: &std::path::Path,
-    cancel: &Arc<ProgressState>,
+    password: Option<&str>,
+    progress: &Arc<ProgressState>,
     limits: &Limits,
 ) -> EngineEvent {
     let ext = archive.extension().and_then(|s| s.to_str()).unwrap_or("");
@@ -462,15 +588,16 @@ fn run_test_blocking(
         Ok(f) => f,
         Err(e) => return EngineEvent::Error(format!("open: {e}")),
     };
+    let cb: &dyn supazip_core::traits::ProgressCallback = &**progress;
     match backend.test(
         Box::new(std::io::BufReader::new(file)),
-        None,
-        cancel,
+        password,
+        cb,
         limits,
     ) {
         Ok(true) => EngineEvent::Done(format!("OK: {}", archive.display())),
         Ok(false) => EngineEvent::Error("test: integrity check failed".into()),
-        Err(e) => EngineEvent::Error(format!("test: {e}")),
+        Err(e) => map_engine_error(PasswordOpKind::Test, archive, "test", e),
     }
 }
 

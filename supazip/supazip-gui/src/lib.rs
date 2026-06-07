@@ -18,8 +18,12 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 
-use supazip_core::traits::ProgressState;
+use supazip_core::traits::ProgressState as CoreProgressState;
 use supazip_core::{formats, ArchiveEntry, Limits};
+
+pub mod progress;
+
+pub use progress::{show_progress_modal, GuiProgress, ProgressState};
 
 pub mod dialogs;
 pub use dialogs::{PasswordDialogState, PasswordTarget};
@@ -161,7 +165,13 @@ pub struct AppController {
     state: AppState,
     engine_tx: Sender<EngineEvent>,
     engine_rx: Receiver<EngineEvent>,
-    cancel_flag: Arc<ProgressState>,
+    cancel_flag: Arc<CoreProgressState>,
+    /// WS-C: in-flight progress surfaced as the modal progress dialog.
+    /// `Some` while a long-running operation is in flight; `None` when
+    /// the controller is idle. The same `Arc` is handed to the worker
+    /// through [`Self::start_progress`] so the worker can push per-entry
+    /// updates through the [`crate::GuiProgress`] adapter.
+    progress: Option<Arc<ProgressState>>,
     limits: Limits,
     /// WS-E: modal password dialog state. Hidden by default; the GUI
     /// opens it when an `EngineEvent::PasswordRequired` arrives.
@@ -175,7 +185,8 @@ impl Default for AppController {
             state: AppState::default(),
             engine_tx,
             engine_rx,
-            cancel_flag: Arc::new(ProgressState::new()),
+            cancel_flag: Arc::new(CoreProgressState::new()),
+            progress: None,
             limits: Limits::default(),
             password_dialog: PasswordDialogState::default(),
         }
@@ -195,6 +206,13 @@ impl AppController {
     /// Borrow the current state.
     pub fn state(&self) -> &AppState {
         &self.state
+    }
+
+    /// Mutably borrow the state. The eframe `App` uses this for fields
+    /// that are owned by the controller but mutated by the GUI (e.g.
+    /// the about-modal flag in [`crate::menubar`]).
+    pub fn state_mut(&mut self) -> &mut AppState {
+        &mut self.state
     }
 
     /// Mutably borrow the password dialog state. The eframe `App` uses
@@ -250,7 +268,8 @@ impl AppController {
                 });
                 self.state.busy = false;
                 self.state.status = "loaded".to_string();
-                self.cancel_flag = Arc::new(ProgressState::new());
+                self.cancel_flag = Arc::new(CoreProgressState::new());
+                self.finish_progress();
                 // WS-D: successful open → push to recent files (cap 10,
                 // dedup, JSON-persisted). Best-effort: an I/O error on
                 // `save` is logged and swallowed so the open still
@@ -280,17 +299,20 @@ impl AppController {
             EngineEvent::Done(msg) => {
                 self.state.busy = false;
                 self.state.status = msg;
-                self.cancel_flag = Arc::new(ProgressState::new());
+                self.cancel_flag = Arc::new(CoreProgressState::new());
+                self.finish_progress();
             }
             EngineEvent::Error(msg) => {
                 self.state.busy = false;
                 self.state.status = format!("error: {msg}");
-                self.cancel_flag = Arc::new(ProgressState::new());
+                self.cancel_flag = Arc::new(CoreProgressState::new());
+                self.finish_progress();
             }
             EngineEvent::PasswordRequired { path, kind } => {
                 self.state.busy = false;
                 self.state.status = "password required".to_string();
-                self.cancel_flag = Arc::new(ProgressState::new());
+                self.cancel_flag = Arc::new(CoreProgressState::new());
+                self.finish_progress();
                 self.password_dialog.open(kind.into_target(path));
             }
         }
@@ -394,7 +416,8 @@ impl AppController {
             self.state.open_archive = None;
             self.state.busy = false;
             self.state.status = "closed".to_string();
-            self.cancel_flag = Arc::new(ProgressState::new());
+            self.cancel_flag = Arc::new(CoreProgressState::new());
+            self.finish_progress();
             true
         } else {
             self.state.status = "no archive open".to_string();
@@ -433,15 +456,46 @@ impl AppController {
     }
 
     /// Cancel any in-flight engine operation. The cancellation flag is
-    /// shared with the worker thread via the `Arc<ProgressState>` returned
-    /// by `cancel_handle`.
+    /// shared with the worker thread via the `Arc<CoreProgressState>`
+    /// returned by `cancel_handle`.
     pub fn cancel(&self) {
         self.cancel_flag.cancel();
     }
 
     /// Borrow the shared cancellation handle for handing to a worker.
-    pub fn cancel_handle(&self) -> Arc<ProgressState> {
+    pub fn cancel_handle(&self) -> Arc<CoreProgressState> {
         self.cancel_flag.clone()
+    }
+
+    /// WS-C: enter the "in-flight" progress state. Allocates a fresh
+    /// [`ProgressState`] (the GUI re-export, distinct from the
+    /// core's `CoreProgressState`), installs it on the controller, and
+    /// returns a clone for the worker to write to. The next call to
+    /// [`Self::finish_progress`] (or any terminal `apply` event) drops
+    /// the reference and the modal dialog disappears.
+    ///
+    /// The cancel flag is left pointing at the core `CoreProgressState`,
+    /// which is what the engine accepts as a `&dyn ProgressCallback`.
+    /// The GUI's [`ProgressState`] is what the modal dialog reads. The
+    /// two share no state directly — the modal is driven by
+    /// `set_progress` / `set_message` callbacks from the engine, while
+    /// the cancel flag is set directly by the GUI's Cancel button.
+    pub fn start_progress(&mut self) -> Arc<ProgressState> {
+        let state = Arc::new(ProgressState::new());
+        self.progress = Some(state.clone());
+        state
+    }
+
+    /// WS-C: drop the in-flight progress state. Idempotent — calling it
+    /// when no operation is running is a no-op.
+    pub fn finish_progress(&mut self) {
+        self.progress = None;
+    }
+
+    /// WS-C: borrow the in-flight progress state, if any. The GUI calls
+    /// this once per frame to decide whether to render the modal.
+    pub fn progress(&self) -> Option<&Arc<ProgressState>> {
+        self.progress.as_ref()
     }
 
     /// Current resource limits. Workers pass this into the engine.
@@ -867,5 +921,60 @@ mod tests {
             PasswordOpKind::Test.into_target(p),
             PasswordTarget::Open(_)
         ));
+    }
+
+    // -----------------------------------------------------------------------
+    // WS-C: progress-dialog wiring on the controller.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn start_progress_installs_state() {
+        let mut ctrl = AppController::default();
+        assert!(ctrl.progress().is_none());
+        let handle = ctrl.start_progress();
+        assert!(ctrl.progress().is_some(), "progress should be set");
+        assert!(Arc::ptr_eq(ctrl.progress().unwrap(), &handle));
+    }
+
+    #[test]
+    fn finish_progress_drops_state() {
+        let mut ctrl = AppController::default();
+        let _h = ctrl.start_progress();
+        assert!(ctrl.progress().is_some());
+        ctrl.finish_progress();
+        assert!(ctrl.progress().is_none());
+    }
+
+    #[test]
+    fn apply_done_clears_progress_state() {
+        let mut ctrl = AppController::default();
+        let _h = ctrl.start_progress();
+        assert!(ctrl.progress().is_some());
+        ctrl.apply(EngineEvent::Done("ok".into()));
+        assert!(ctrl.progress().is_none());
+    }
+
+    #[test]
+    fn apply_error_clears_progress_state() {
+        let mut ctrl = AppController::default();
+        let _h = ctrl.start_progress();
+        assert!(ctrl.progress().is_some());
+        ctrl.apply(EngineEvent::Error("boom".into()));
+        assert!(ctrl.progress().is_none());
+    }
+
+    #[test]
+    fn start_progress_does_not_clobber_cancel_handle() {
+        // The cancel flag stays on `CoreProgressState`; `start_progress`
+        // only manages the GUI's `ProgressState`. A prior cancel must
+        // remain observable to the in-flight worker, and a new
+        // `start_progress` must not reset the cancel flag (it is up to
+        // the GUI to do that explicitly, since the worker may not have
+        // observed the prior cancel yet).
+        let mut ctrl = AppController::default();
+        ctrl.cancel();
+        assert!(ctrl.cancel_handle().is_cancelled());
+        let _h = ctrl.start_progress();
+        assert!(ctrl.cancel_handle().is_cancelled());
     }
 }
