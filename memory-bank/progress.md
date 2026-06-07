@@ -30,7 +30,14 @@
 
 ## Doing
 
-- (none — phases 0–3 complete in this session)
+- [x] Phase 4: WS-F (native menu bar, milestone 0.3.0) on top of
+  the in-flight WS-A/B/D/E changes. New `supazip-gui/src/menubar.rs`
+  owns `MenuAction` (8 variants) and `MenuActionOutcome`; the headless
+  `AppController::dispatch_menu_action` handles ToggleDebug / Close /
+  About in place, and the GUI front-end handles the rfd / viewport
+  side effects. `cargo fmt -p supazip-gui --check` is clean; local
+  rustc is still 1.88 so a full `cargo check` is blocked until the
+  toolchain is upgraded (see `activeContext.md`).
 
 ## Next
 
@@ -39,4 +46,6 @@
   blocked locally by rustc version).
 - [ ] CI / GitHub Actions for `cargo test -p supazip-core -p supazip-cli`.
 - [ ] Virtual scrolling for very large archives (Phase 4 in `plan.md`).
-- [ ] Drag-and-drop, recent files, keyboard shortcuts.
+- [ ] Drag-and-drop, recent files, keyboard shortcuts. (WS-A, WS-D,
+  WS-E, WS-F in the 0.3.0 plan are in flight; WS-B context menu is
+  already on `master`.)
