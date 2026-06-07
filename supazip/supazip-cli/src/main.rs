@@ -7,6 +7,8 @@ use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+mod completions;
+
 use clap::{Parser, Subcommand, ValueEnum};
 use supazip_core::error::ArchiverError;
 use supazip_core::traits::{CreateOptions, Limits, ProgressCallback};
@@ -91,6 +93,13 @@ enum Command {
         /// Password for encrypted archives.
         #[arg(long)]
         password: Option<String>,
+    },
+
+    /// Generate shell completion scripts (bash, zsh, fish, powershell, elvish).
+    Completions {
+        /// Target shell.
+        #[arg(value_enum)]
+        shell: clap_complete::Shell,
     },
 }
 
@@ -179,6 +188,11 @@ fn run(cli: Cli) -> Result<(), ArchiverError> {
         Command::Test { archive, password } => {
             let backend = resolve_backend(&archive, None)?;
             cmd_test(backend, &archive, password.as_deref(), &limits)
+        }
+        Command::Completions { shell } => {
+            let mut cmd = Cli::command();
+            completions::generate_completions(shell, &mut cmd);
+            Ok(())
         }
     }
 }
