@@ -1,0 +1,55 @@
+# cargo-deny configuration for SupaZip
+# https://EmbarkStudios.github.io/cargo-deny/
+
+# ── Advisories ────────────────────────────────────────────────────────────────
+# cargo-deny v0.19+: vulnerability/notice/unsound always error.
+# unmaintained accepts "all" (default) | "workspace" | "transitive" | "none".
+[advisories]
+unmaintained = "workspace"
+yanked = "warn"
+# RUSTSEC IDs to suppress — each entry MUST have a comment explaining why.
+ignore = []
+
+# ── Licenses ──────────────────────────────────────────────────────────────────
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Zlib",
+    "ISC",
+    "0BSD",
+    "BSL-1.0",       # Boost Software License — used by clipboard-win, error-code
+    "CC0-1.0",       # Creative Commons Zero — used by hexf-parse
+    "MPL-2.0",       # Mozilla Public License 2.0 — used by option-ext
+    "OFL-1.1",       # SIL Open Font License — used by egui embedded fonts
+    "Ubuntu-font-1.0", # Ubuntu Font License — used by egui embedded fonts
+]
+private = { ignore = true }
+
+# ── Bans ──────────────────────────────────────────────────────────────────────
+[bans]
+multiple-versions = "warn"
+# Path dependencies (e.g. supazip-core referenced from supazip-gui) are
+# inherently wildcards; "warn" avoids a CI failure on the workspace crate graph.
+wildcards = "warn"
+# Crates allowed to appear in multiple versions — each entry MUST have a comment.
+skip = []
+# Subtrees where multiple versions are unavoidable and harmless.
+skip-tree = [
+    # windows-sys is pulled in by nearly every platform crate; version pins
+    # converge once all upstream deps align on the same semver range.
+    { crate = "windows-sys", reason = "foundational crate for many deps; versions diverge across the ecosystem" },
+    # objc2 ecosystem: eframe/accesskit/winit each pin their own minor version.
+    { crate = "objc2", reason = "macOS-specific; eframe/accesskit/winit each pin different minor versions" },
+]
+
+# ── Sources ───────────────────────────────────────────────────────────────────
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

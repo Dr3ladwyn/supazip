@@ -125,6 +125,19 @@ accept command-line arguments. To add a third language:
 Until both the script and the CI step understand the new pair, the new
 file will not be enforced — so do step 4 in the same PR as step 1.
 
+## Security audits
+
+CI runs **cargo-audit** and **cargo-deny** on every push/PR to `master`
+(see `.github/workflows/audit.yml`). To run them locally:
+
+```bash
+cargo install cargo-audit && cd supazip && cargo audit
+cargo install cargo-deny  && cd supazip && cargo deny check
+```
+
+For details on suppressing advisories, handling license failures, and
+managing ban hits, see [docs/security.md](security.md).
+
 ## Testing
 
 - **Engine + CLI:** `cd supazip && cargo test -p supazip-core -p supazip-cli`
