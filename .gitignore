@@ -39,3 +39,10 @@ rust-project.json
 
 # Cursor local artifacts (agent scratchpads, hooks, etc.) — not source.
 .claude/
+
+# proptest writes a *.proptest-regressions file next to a test that
+# failed but the user did not pin (or failed outside a regression test).
+# These files are scratch state, not source. See
+# https://altsysrq.github.io/proptest-book/proptest/file-persistence.html
+*.proptest-regressions
+
