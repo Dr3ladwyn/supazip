@@ -107,6 +107,28 @@ jobs:
           BIN="target/${{ matrix.target }}/release/supazip-cli${{ matrix.ext }}"
           [ -f "$BIN" ] && cp "$BIN" "artifacts/supazip-cli-${{ matrix.target }}${{ matrix.ext }}"
 
+      - name: macOS sign + notarize
+        if: runner.os == 'macOS' && env.APPLE_CERTIFICATE != ''
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        shell: bash
+        working-directory: supazip
+        run: |
+          echo "$APPLE_CERTIFICATE" | base64 -d > cert.p12
+          security create-keychain -p "" build.keychain
+          security import cert.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-keychain-settings build.keychain
+          security unlock-keychain -p "" build.keychain
+          CERT_NAME=$(security find-identity -v build.keychain | grep "Developer ID" | head -1 | sed 's/.*"\(.*\)"/\1/')
+          codesign --deep --force --options runtime --sign "$CERT_NAME" "artifacts/supazip-cli-${{ matrix.target }}"
+          xcrun notarytool submit "artifacts/supazip-cli-${{ matrix.target }}" --apple-id "$APPLE_ID" --password "$APPLE_ID_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+          xcrun stapler staple "artifacts/supazip-cli-${{ matrix.target }}"
+          rm -f cert.p12 build.keychain
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
