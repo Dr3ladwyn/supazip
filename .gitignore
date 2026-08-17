@@ -28,14 +28,11 @@ desktop.ini
 # rust-analyzer
 rust-project.json
 
-# Vendored reference project (PeaZip) is a nested clone; never index.
-# The PeaZip sources exist for design inspiration only and are not part of
-# the SupaZip build. Remove this exclusion if you ever decide to vendor
-# PeaZip sources into the SupaZip tree as a non-nested-repo.
-# (PeaZip's own .git is the source of truth for those files.)
-# Nothing to add here — `PeaZip/` is a separate checkout, not a subdir of
-# this repo's tree. If a `PeaZip/.git` is ever moved into the tree, exclude
-# its metadata with `/PeaZip/.git/`.
+# Vendored PeaZip reference: a nested git checkout for design inspiration
+# only. It is not part of the SupaZip build. Do not `git add` this tree
+# (including as a gitlink / submodule) unless a real `.gitmodules` entry
+# is added on purpose.
+/PeaZip/
 
 # Cursor local artifacts (agent scratchpads, hooks, etc.) — not source.
 .claude/
