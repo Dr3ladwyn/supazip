@@ -1,0 +1,50 @@
+{
+  "source": "design/cli-table.tera",
+  "total_width": 72,
+  "column_gap": "  ",
+  "rule_char": "─",
+  "ellipsis": "…",
+  "crypt_yes": "yes",
+  "crypt_no": "-",
+  "footer_label": "entries",
+  "columns": [
+    {
+      "id": "idx",
+      "header": "IDX",
+      "width": 4,
+      "align": "right"
+    },
+    {
+      "id": "method",
+      "header": "METHOD",
+      "width": 12,
+      "align": "left",
+      "truncate": true
+    },
+    {
+      "id": "size",
+      "header": "SIZE",
+      "width": 12,
+      "align": "right",
+      "format": "human_size"
+    },
+    {
+      "id": "compressed",
+      "header": "COMPRESSED",
+      "width": 12,
+      "align": "right",
+      "format": "human_size"
+    },
+    {
+      "id": "crypt",
+      "header": "CRYPT",
+      "width": 8,
+      "align": "left"
+    },
+    {
+      "id": "name",
+      "header": "NAME",
+      "align": "left"
+    }
+  ]
+}

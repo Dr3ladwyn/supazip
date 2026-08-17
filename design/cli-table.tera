@@ -10,11 +10,11 @@
    Audience  : Power users of the SupaZip CLI; reviewers of the CLI refactor
                PR; the design system (DESIGN.md §"CLI styling" links here).
 
-   Scope     : Document/contract only. THIS FILE IS NOT EXECUTED BY THE CLI
-               IN v1. It is a single source of truth for the table layout.
-               The actual Rust renderer (planned for a later PR) will produce
-               byte-identical output to the worked example at the bottom of
-               this file.
+   Scope     : Human-readable layout contract. The CLI does not execute Tera;
+               `design/cli-table.json` is the machine-readable mirror
+               (widths, alignment, rule character, CRYPT literals, footer)
+               included by `supazip-cli`. A unit test fails if this comment
+               block and the JSON spec drift.
 
    Layout    : Fixed-width monospace, total width = 72 columns.
                IDX        : width  4, right-aligned

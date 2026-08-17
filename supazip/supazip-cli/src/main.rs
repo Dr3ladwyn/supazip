@@ -16,6 +16,7 @@ use supazip_core::traits::{CreateOptions, Limits, ProgressCallback};
 use supazip_core::{formats, ArchiveFormat};
 
 mod output;
+mod table;
 use output::OutputFormat;
 
 #[derive(Parser, Debug)]
@@ -309,20 +310,13 @@ fn cmd_list(
         return Ok(());
     }
 
-    // Plain-text table: name, size, compressed, encrypted.
-    println!(
-        "{:>4}  {:<12}  {:>12}  {:>12}  {:<8}  NAME",
-        "IDX", "METHOD", "SIZE", "COMPRESSED", "CRYPT"
+    // Text table: column widths / alignment / rule come from
+    // `design/cli-table.json` (mirror of `design/cli-table.tera`).
+    // Colour only when stdout is a TTY; json|yaml stay uncoloured above.
+    print!(
+        "{}",
+        table::render_list_table(&entries, table::tty_styles().as_ref())
     );
-    println!("{}", "-".repeat(72));
-    for (i, e) in entries.iter().enumerate() {
-        let crypt = if e.encrypted { "yes" } else { "-" };
-        println!(
-            "{:>4}  {:<12}  {:>12}  {:>12}  {:<8}  {}",
-            i, e.compression_method, e.size, e.compressed_size, crypt, e.name,
-        );
-    }
-    println!("\n{} entries", entries.len());
     Ok(())
 }
 

@@ -43,4 +43,9 @@ All roadmap milestones completed. 6 tags (v0.2.0 through v1.0.0).
 - [ ] `git push && git push --tags` to publish.
 - [ ] Fill packaging hashes from the first GitHub Release.
 - [ ] Publish to crates.io (requires API token; see `docs/publishing.md`).
-- [ ] **1.1**: design system v2 (tokens runtime, light theme) — separate track.
+- [x] **1.1 GUI tokens runtime (2026-08-17):** `Style::from_tokens` +
+      `settings.theme` (Dark / Light / System); monoline toolbar icons;
+      JetBrains Mono embeds only when the OFL TTF is under `assets/fonts/`.
+- [ ] **1.1 leftover:** DESIGN.md v2 + light-theme a11y re-audit.
+- [x] CLI `list` text table driven by `design/cli-table.json` (tera contract
+      mirror); optional TTY colors from `themes.dark` tokens.

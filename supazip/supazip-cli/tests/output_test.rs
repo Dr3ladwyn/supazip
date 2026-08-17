@@ -231,3 +231,48 @@ fn default_output_is_text() {
         &stdout[..stdout.len().min(200)]
     );
 }
+
+#[test]
+fn list_text_output_contains_header_columns() {
+    let tmp = TempDir::new().expect("tempdir");
+    let zip_path = tmp.path().join("sample.zip");
+    build_small_zip(&zip_path);
+
+    let out = Command::new(cli_bin())
+        .arg("list")
+        .arg(&zip_path)
+        .output()
+        .expect("run supazip-cli list text");
+
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        out.status.success(),
+        "list text failed\nstatus: {:?}\nstdout: {}\nstderr: {}",
+        out.status,
+        stdout,
+        stderr,
+    );
+
+    for col in ["IDX", "METHOD", "SIZE", "COMPRESSED", "CRYPT", "NAME"] {
+        assert!(
+            stdout.contains(col),
+            "text list should contain header column {col:?}, got: {stdout}"
+        );
+    }
+    assert!(
+        stdout.contains("─"),
+        "text list should use the U+2500 rule from cli-table spec, got: {stdout}"
+    );
+    // Piped stdout must stay uncoloured (Command::output captures a pipe).
+    assert!(
+        !stdout.contains('\u{1b}'),
+        "piped text list must not contain ANSI color, got: {stdout:?}"
+    );
+    // Must NOT be JSON (no leading '[').
+    assert!(
+        !stdout.trim_start().starts_with('['),
+        "default output should not be JSON: {}",
+        &stdout[..stdout.len().min(200)]
+    );
+}
