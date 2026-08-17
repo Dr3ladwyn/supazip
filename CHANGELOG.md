@@ -4,7 +4,41 @@ All notable changes to SupaZip are documented in this file. Versions follow
 [Semantic Versioning](https://semver.org/). The first published release is
 `0.1.0`.
 
-## [1.0.0] - 2027-06-XX
+## [Unreleased]
+
+Harden work targeting 1.0.1 is listed in the section below until that tag
+is cut. New post-1.0.1 changes go here.
+
+## [1.0.1] - Unreleased
+
+### Fixed
+
+- Single GitHub identity placeholder: `your-org/supazip` in README,
+  SECURITY.md, packaging manifests, crate `repository` URLs, and
+  `.github/ISSUE_TEMPLATE/config.yml`. Do not invent a real handle until
+  a public repository exists.
+- CI: design token/i18n scripts run from the repo root (`design/scripts/`),
+  not under `supazip/`.
+- Coverage: `cargo llvm-cov --workspace` runs with working-directory
+  `supazip`.
+- Release workflow: unique `actions/upload-artifact` names per matrix
+  target; binaries packaged as `.tar.gz` (Unix) / `.zip` (Windows) to
+  match Homebrew, scoop, and winget URLs; minisign skips with a warning
+  when secrets are missing instead of failing the job.
+- CLI completions and man page regenerated from the live `clap` command
+  (no one-line TODO stubs).
+- CHANGELOG: 1.0.0 date set to 2026-06-07; `[Unreleased]` moved off the
+  old 0.2 notes.
+- PeaZip nested checkout ignored (gitlink removed from the index; folder
+  stays untracked).
+- packaging README: SHA-256 hashes are filled after the first GitHub
+  Release.
+
+### Changed
+
+- Crate versions: `supazip-core`, `supazip-cli`, `supazip-gui` to `1.0.1`.
+
+## [1.0.0] - 2026-06-07
 
 ### Security
 - `SECURITY.md`: disclosure policy (90-day coordinated disclosure), contact email, scope (all crates, packaging, CI), supported versions table, security-related design decisions (resource limits, path-traversal, atomic writes, cancellation).
@@ -15,7 +49,7 @@ All notable changes to SupaZip are documented in this file. Versions follow
 - All backends tested, fuzzed, and audited; zero P0/P1 bugs in RC period.
 - Version bump: `supazip-core`, `supazip-cli`, `supazip-gui` to `1.0.0`.
 
-## [0.5.0] - 2027-02-XX
+## [0.5.0] - 2026-06-07
 
 ### Added
 - **Hand-rolled plural runtime** (`supazip-core/src/i18n.rs`): `Locale` enum (en/ru/de), `plural_form()` with CLDR rules, `I18nStrings` TOML loader with dot-path lookup and plural-aware `get_plural()`.
@@ -93,9 +127,15 @@ All notable changes to SupaZip are documented in this file. Versions follow
   on `supazip-core` and `supazip-cli`; `publish = false` on
   `supazip-gui`. `docs/publishing.md` documents the manual publish flow.
 
-## [Unreleased]
+## [0.1.0] - 2026-05-25
 
 ### Added
+- Initial engine: `supazip-core` with `ArchiveFormat` trait and
+  `ZipBackend` / `SevenZBackend`.
+- CLI: `list` / `extract` / `create` / `test` with `--password`,
+  `--format`, `--entry`, `--all`.
+- GUI: placeholder window.
+- Unit + integration tests for the happy paths.
 - `Limits` (`max_archive_size`, `max_entry_count`, `max_entry_size`)
   threaded through `ArchiveFormat::list/extract/create/test`. The CLI
   honours `SUPAZIP_MAX_ARCHIVE_SIZE` (bytes with optional `K`/`M`/`G`
@@ -113,7 +153,7 @@ All notable changes to SupaZip are documented in this file. Versions follow
   `ArchiverError::Cancelled` via the new `map_sevenz_error` arm.
 - CLI atomic `create` through `tempfile::NamedTempFile` +
   `persist`. Drops the previous in-place write that could leave a
-  half-written archive on Ctrl-C.
+  half-written archive on disk.
 - CLI `--compression` flag (default `deflate`) for `create`.
 - CLI env-filter tracing via `RUST_LOG` / `SUPAZIP_LOG`. Exit code 130
   on `ArchiverError::Cancelled`.
@@ -138,13 +178,3 @@ All notable changes to SupaZip are documented in this file. Versions follow
 - `thiserror` upgraded to `2`.
 - README updated to reflect the new API, security posture, and test
   coverage.
-
-## [0.1.0] - 2026-05-25
-
-### Added
-- Initial engine: `supazip-core` with `ArchiveFormat` trait and
-  `ZipBackend` / `SevenZBackend`.
-- CLI: `list` / `extract` / `create` / `test` with `--password`,
-  `--format`, `--entry`, `--all`.
-- GUI: placeholder window.
-- Unit + integration tests for the happy paths.
