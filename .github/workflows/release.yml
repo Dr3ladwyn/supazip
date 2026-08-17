@@ -9,7 +9,10 @@ name: release
 #      - x86_64-apple-darwin
 #      - aarch64-apple-darwin
 #      - aarch64-unknown-linux-gnu  (cross-compiled on ubuntu-latest)
-#      Uploads each binary as a workflow artifact.
+#      Packages each binary as .tar.gz (Unix) or .zip (Windows) to match
+#      packaging/homebrew, scoop, and winget download URLs, then uploads
+#      one uniquely named artifact per matrix target (actions/upload-artifact
+#      v4 forbids colliding names).
 #   2. `sign`: downloads all binaries, computes SHA-256SUMS, signs the
 #      checksum file with `minisign` (key from `secrets.MINISIGN_SECRET_KEY`),
 #      generates a CycloneDX SBOM from `Cargo.lock`, and publishes
@@ -116,13 +119,18 @@ jobs:
         working-directory: supazip
         run: ${{ matrix.cross && 'cross' || 'cargo' }} build -p supazip-cli --release --locked --target ${{ matrix.target }}
 
-      - name: Package
+      - name: Stage binary
         shell: bash
         working-directory: supazip
         run: |
-          mkdir -p artifacts
+          set -euo pipefail
+          mkdir -p artifacts/stage
           BIN="target/${{ matrix.target }}/release/supazip-cli${{ matrix.ext }}"
-          [ -f "$BIN" ] && cp "$BIN" "artifacts/supazip-cli-${{ matrix.target }}${{ matrix.ext }}"
+          if [ ! -f "$BIN" ]; then
+            echo "missing binary: $BIN" >&2
+            exit 1
+          fi
+          cp "$BIN" "artifacts/stage/supazip-cli${{ matrix.ext }}"
 
       - name: macOS sign + notarize
         if: runner.os == 'macOS' && env.APPLE_CERTIFICATE != ''
@@ -141,16 +149,35 @@ jobs:
           security set-keychain-settings build.keychain
           security unlock-keychain -p "" build.keychain
           CERT_NAME=$(security find-identity -v build.keychain | grep "Developer ID" | head -1 | sed 's/.*"\(.*\)"/\1/')
-          codesign --deep --force --options runtime --sign "$CERT_NAME" "artifacts/supazip-cli-${{ matrix.target }}"
-          xcrun notarytool submit "artifacts/supazip-cli-${{ matrix.target }}" --apple-id "$APPLE_ID" --password "$APPLE_ID_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
-          xcrun stapler staple "artifacts/supazip-cli-${{ matrix.target }}"
+          codesign --deep --force --options runtime --sign "$CERT_NAME" "artifacts/stage/supazip-cli"
+          xcrun notarytool submit "artifacts/stage/supazip-cli" --apple-id "$APPLE_ID" --password "$APPLE_ID_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+          xcrun stapler staple "artifacts/stage/supazip-cli"
           rm -f cert.p12 build.keychain
+
+      - name: Package archive
+        shell: bash
+        working-directory: supazip
+        run: |
+          set -euo pipefail
+          STAGED="artifacts/stage/supazip-cli${{ matrix.ext }}"
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            ARCHIVE="artifacts/supazip-cli-${{ matrix.target }}.exe.zip"
+            powershell.exe -NoProfile -Command \
+              "Compress-Archive -LiteralPath '${STAGED}' -DestinationPath '${ARCHIVE}' -Force"
+          else
+            ARCHIVE="artifacts/supazip-cli-${{ matrix.target }}.tar.gz"
+            tar -C artifacts/stage -czf "$ARCHIVE" "supazip-cli${{ matrix.ext }}"
+          fi
+          echo "packed $ARCHIVE"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: binaries
-          path: supazip/artifacts/*
+          name: binaries-${{ matrix.target }}
+          path: |
+            supazip/artifacts/*.tar.gz
+            supazip/artifacts/*.zip
+          if-no-files-found: error
 
   sign:
     name: Sign and publish release
@@ -164,8 +191,9 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          name: binaries
+          pattern: binaries-*
           path: dist
+          merge-multiple: true
 
       - name: Install minisign
         run: sudo apt-get install -y minisign
@@ -174,7 +202,11 @@ jobs:
         shell: bash
         working-directory: dist
         run: |
-          sha256sum -- * > SHA256SUMS
+          set -euo pipefail
+          find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.zip' \) -print0 \
+            | sort -z \
+            | xargs -0 sha256sum > SHA256SUMS
+          cat SHA256SUMS
 
       - name: Sign with minisign
         working-directory: dist
@@ -183,6 +215,10 @@ jobs:
           MINISIGN_PASSPHRASE: ${{ secrets.MINISIGN_PASSPHRASE }}
         run: |
           set -euo pipefail
+          if [ -z "${MINISIGN_SECRET_KEY:-}" ]; then
+            echo "::warning::MINISIGN_SECRET_KEY is not set; skipping minisign. Release will ship unsigned checksums."
+            exit 0
+          fi
           echo "$MINISIGN_SECRET_KEY" > minisign.key
           chmod 600 minisign.key
           echo "$MINISIGN_PASSPHRASE" | minisign -S \
@@ -203,9 +239,10 @@ jobs:
         with:
           draft: true
           generate_release_notes: true
+          fail_on_unmatched_files: false
           files: |
             dist/SHA256SUMS
             dist/SHA256SUMS.minisig
-            dist/*.exe
-            dist/supazip-cli-*
+            dist/*.tar.gz
+            dist/*.zip
             dist/*.spdx.json
