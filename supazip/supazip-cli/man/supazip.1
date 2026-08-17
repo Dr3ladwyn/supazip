@@ -1,15 +1,53 @@
-.\" TODO: regenerate with cargo run -p supazip-cli -- man --out-dir supazip-cli/man
-.TH SUPAZIP 1 "June 2026" "supazip 0.4.0" "User Commands"
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH supazip 1  "supazip 1.0.1" 
 .SH NAME
-supazip \- PeaZip-style archive manager (CLI front-end)
+supazip \- A PeaZip\-style archive manager for 7z and ZIP (CLI front\-end).
 .SH SYNOPSIS
-.B supazip
-[\fIOPTIONS\fR] \fICOMMAND\fR
+\fBsupazip\fR [\fB\-\-output\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] <\fIsubcommands\fR>
 .SH DESCRIPTION
-SupaZip CLI lets you list, extract, create, and test 7z and ZIP archives.
-.PP
-Run
-.B supazip \-\-help
-for the full list of subcommands and flags.
-.SH SEE ALSO
-Project homepage: https://github.com/your-org/supazip
+SupaZip CLI — list, extract, create, and test 7z and ZIP archives. See https://github.com/your\-org/supazip for the GUI front\-end and core engine.
+.SH OPTIONS
+.TP
+\fB\-\-output\fR \fI<OUTPUT>\fR [default: text]
+
+.br
+\fIPossible values:\fR
+.RS 14
+.IP \(bu 2
+text: Human\-readable table (the legacy default)
+.IP \(bu 2
+json: JSON
+.IP \(bu 2
+yaml: YAML
+.RE
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help (see a summary with \*(Aq\-h\*(Aq)
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version
+.SH SUBCOMMANDS
+.TP
+supazip\-list(1)
+List the contents of an archive
+.TP
+supazip\-extract(1)
+Extract an archive to a directory
+.TP
+supazip\-create(1)
+Create a new archive from one or more files
+.TP
+supazip\-test(1)
+Verify the integrity of an archive
+.TP
+supazip\-completions(1)
+Generate shell completion scripts (bash, zsh, fish, powershell, elvish)
+.TP
+supazip\-man(1)
+Generate man page
+.TP
+supazip\-help(1)
+Print this message or the help of the given subcommand(s)
+.SH VERSION
+v1.0.1

@@ -1,1 +1,249 @@
-# TODO: regenerate with cargo run -p supazip-cli -- completions zsh
+#compdef supazip
+
+autoload -U is-at-least
+
+_supazip() {
+    typeset -A opt_args
+    typeset -a _arguments_options
+    local ret=1
+
+    if is-at-least 5.2; then
+        _arguments_options=(-s -S -C)
+    else
+        _arguments_options=(-s -C)
+    fi
+
+    local context curcontext="$curcontext" state line
+    _arguments "${_arguments_options[@]}" : \
+'--output=[]:OUTPUT:((text\:"Human-readable table (the legacy default)"
+json\:"JSON"
+yaml\:"YAML"))' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+'-V[Print version]' \
+'--version[Print version]' \
+":: :_supazip_commands" \
+"*::: :->supazip" \
+&& ret=0
+    case $state in
+    (supazip)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:supazip-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+'--password=[Password for encrypted archives]:PASSWORD:_default' \
+'--output=[]:OUTPUT:((text\:"Human-readable table (the legacy default)"
+json\:"JSON"
+yaml\:"YAML"))' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+':archive -- Path to the archive file:_files' \
+&& ret=0
+;;
+(extract)
+_arguments "${_arguments_options[@]}" : \
+'--out=[Output directory. Defaults to the current directory]:OUT:_files' \
+'--password=[Password for encrypted archives]:PASSWORD:_default' \
+'*--entry=[Extract only the named entries. May be repeated]:NAME:_default' \
+'--output=[]:OUTPUT:((text\:"Human-readable table (the legacy default)"
+json\:"JSON"
+yaml\:"YAML"))' \
+'--all[Extract every entry (the default)]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+':archive -- Path to the archive file:_files' \
+&& ret=0
+;;
+(create)
+_arguments "${_arguments_options[@]}" : \
+'--format=[Force a specific archive format]:FORMAT:(zip 7z)' \
+'--password=[Password for encrypted archives (only supported for 7z right now)]:PASSWORD:_default' \
+'--compression=[Compression method (\`store\`, \`deflate\`, \`bzip2\`, \`zstd\` for ZIP; ignored by 7z, which uses LZMA2 / AES-256 depending on password)]:COMPRESSION:_default' \
+'--output=[]:OUTPUT:((text\:"Human-readable table (the legacy default)"
+json\:"JSON"
+yaml\:"YAML"))' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+':archive -- Path of the archive to create. The format is inferred from the extension unless `--format` is given:_files' \
+'*::files -- Files to add to the archive:_files' \
+&& ret=0
+;;
+(test)
+_arguments "${_arguments_options[@]}" : \
+'--password=[Password for encrypted archives]:PASSWORD:_default' \
+'--output=[]:OUTPUT:((text\:"Human-readable table (the legacy default)"
+json\:"JSON"
+yaml\:"YAML"))' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+':archive -- Path to the archive file:_files' \
+&& ret=0
+;;
+(completions)
+_arguments "${_arguments_options[@]}" : \
+'--output=[]:OUTPUT:((text\:"Human-readable table (the legacy default)"
+json\:"JSON"
+yaml\:"YAML"))' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+':shell -- Target shell:(bash elvish fish powershell zsh)' \
+&& ret=0
+;;
+(man)
+_arguments "${_arguments_options[@]}" : \
+'--out-dir=[]:OUT_DIR:_files' \
+'--output=[]:OUTPUT:((text\:"Human-readable table (the legacy default)"
+json\:"JSON"
+yaml\:"YAML"))' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+":: :_supazip__subcmd__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:supazip-help-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(extract)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(create)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(test)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(completions)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(man)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+}
+
+(( $+functions[_supazip_commands] )) ||
+_supazip_commands() {
+    local commands; commands=(
+'list:List the contents of an archive' \
+'extract:Extract an archive to a directory' \
+'create:Create a new archive from one or more files' \
+'test:Verify the integrity of an archive' \
+'completions:Generate shell completion scripts (bash, zsh, fish, powershell, elvish)' \
+'man:Generate man page' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'supazip commands' commands "$@"
+}
+(( $+functions[_supazip__subcmd__completions_commands] )) ||
+_supazip__subcmd__completions_commands() {
+    local commands; commands=()
+    _describe -t commands 'supazip completions commands' commands "$@"
+}
+(( $+functions[_supazip__subcmd__create_commands] )) ||
+_supazip__subcmd__create_commands() {
+    local commands; commands=()
+    _describe -t commands 'supazip create commands' commands "$@"
+}
+(( $+functions[_supazip__subcmd__extract_commands] )) ||
+_supazip__subcmd__extract_commands() {
+    local commands; commands=()
+    _describe -t commands 'supazip extract commands' commands "$@"
+}
+(( $+functions[_supazip__subcmd__help_commands] )) ||
+_supazip__subcmd__help_commands() {
+    local commands; commands=(
+'list:List the contents of an archive' \
+'extract:Extract an archive to a directory' \
+'create:Create a new archive from one or more files' \
+'test:Verify the integrity of an archive' \
+'completions:Generate shell completion scripts (bash, zsh, fish, powershell, elvish)' \
+'man:Generate man page' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'supazip help commands' commands "$@"
+}
+(( $+functions[_supazip__subcmd__help__subcmd__completions_commands] )) ||
+_supazip__subcmd__help__subcmd__completions_commands() {
+    local commands; commands=()
+    _describe -t commands 'supazip help completions commands' commands "$@"
+}
+(( $+functions[_supazip__subcmd__help__subcmd__create_commands] )) ||
+_supazip__subcmd__help__subcmd__create_commands() {
+    local commands; commands=()
+    _describe -t commands 'supazip help create commands' commands "$@"
+}
+(( $+functions[_supazip__subcmd__help__subcmd__extract_commands] )) ||
+_supazip__subcmd__help__subcmd__extract_commands() {
+    local commands; commands=()
+    _describe -t commands 'supazip help extract commands' commands "$@"
+}
+(( $+functions[_supazip__subcmd__help__subcmd__help_commands] )) ||
+_supazip__subcmd__help__subcmd__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'supazip help help commands' commands "$@"
+}
+(( $+functions[_supazip__subcmd__help__subcmd__list_commands] )) ||
+_supazip__subcmd__help__subcmd__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'supazip help list commands' commands "$@"
+}
+(( $+functions[_supazip__subcmd__help__subcmd__man_commands] )) ||
+_supazip__subcmd__help__subcmd__man_commands() {
+    local commands; commands=()
+    _describe -t commands 'supazip help man commands' commands "$@"
+}
+(( $+functions[_supazip__subcmd__help__subcmd__test_commands] )) ||
+_supazip__subcmd__help__subcmd__test_commands() {
+    local commands; commands=()
+    _describe -t commands 'supazip help test commands' commands "$@"
+}
+(( $+functions[_supazip__subcmd__list_commands] )) ||
+_supazip__subcmd__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'supazip list commands' commands "$@"
+}
+(( $+functions[_supazip__subcmd__man_commands] )) ||
+_supazip__subcmd__man_commands() {
+    local commands; commands=()
+    _describe -t commands 'supazip man commands' commands "$@"
+}
+(( $+functions[_supazip__subcmd__test_commands] )) ||
+_supazip__subcmd__test_commands() {
+    local commands; commands=()
+    _describe -t commands 'supazip test commands' commands "$@"
+}
+
+if [ "$funcstack[1]" = "_supazip" ]; then
+    _supazip "$@"
+else
+    compdef _supazip supazip
+fi
