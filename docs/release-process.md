@@ -141,7 +141,7 @@ gh release download v0.3.0 -D supazip-v0.3.0
 cd supazip-v0.3.0
 
 # 2. Verify the signature against the checked-in public key.
-minisign -Vm SHA256SUMS.minisig -P "$(curl -fsSL https://raw.githubusercontent.com/<owner>/supazip/main/assets/minisign.pub)"
+minisign -Vm SHA256SUMS.minisig -P "$(curl -fsSL https://raw.githubusercontent.com/your-org/supazip/main/assets/minisign.pub)"
 
 # 3. Verify the per-binary checksums.
 sha256sum --ignore-missing -c SHA256SUMS

@@ -23,7 +23,7 @@ use output::OutputFormat;
     name = "supazip",
     about = "A PeaZip-style archive manager for 7z and ZIP (CLI front-end).",
     long_about = "SupaZip CLI — list, extract, create, and test 7z and ZIP archives. \
-                  See https://github.com/ for the GUI front-end and core engine.",
+                  See https://github.com/your-org/supazip for the GUI front-end and core engine.",
     version
 )]
 pub(crate) struct Cli {

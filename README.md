@@ -123,10 +123,14 @@ The brand identity is SVG, monoline, and theme-agnostic: [`assets/logo.svg`](ass
 
 ## Installation
 
+GitHub URLs below use the placeholder owner **`your-org`**
+(`your-org/supazip`) until a real repository exists. Do not invent a handle;
+replace that one string everywhere when the public repo is created.
+
 ### Homebrew (macOS, Linux)
 
 ```bash
-brew tap supazip/supazip
+brew tap your-org/supazip
 brew install supazip
 ```
 
@@ -147,21 +151,21 @@ winget install SupaZip.SupaZip
 ### scoop (Windows)
 
 ```powershell
-scoop bucket add supazip https://github.com/supazip/scoop-supazip
+scoop bucket add supazip https://github.com/your-org/scoop-supazip
 scoop install supazip
 ```
 
 ### Nix
 
 ```bash
-nix profile install github:supazip/supazip#supazip-cli
+nix profile install github:your-org/supazip#supazip-cli
 ```
 
 ### Docker
 
 ```bash
-docker run --rm ghcr.io/supazip/supazip:latest --version
-docker run --rm -v $(pwd):/data ghcr.io/supazip/supazip list /data/archive.zip
+docker run --rm ghcr.io/your-org/supazip:latest --version
+docker run --rm -v $(pwd):/data ghcr.io/your-org/supazip list /data/archive.zip
 ```
 
 ### crates.io
@@ -173,12 +177,23 @@ cargo install supazip-cli
 ### From source
 
 ```bash
-git clone https://github.com/supazip/supazip.git
+git clone https://github.com/your-org/supazip.git
 cd supazip/supazip
 cargo build --release -p supazip-cli -p supazip-gui
 ```
 
 Requires Rust >= 1.92. MSRV is tested in CI.
+
+Checked-in shell completions and the man page live in
+`supazip/supazip-cli/completions/` and `supazip/supazip-cli/man/supazip.1`.
+Regenerate after CLI flag changes (from `supazip/`):
+
+```bash
+cargo run -p supazip-cli --ignore-rust-version -- completions bash > supazip-cli/completions/supazip.bash
+cargo run -p supazip-cli --ignore-rust-version -- man --out-dir supazip-cli/man
+```
+
+See `supazip/supazip-cli/completions/README.md` for every shell.
 
 ## Quickstart
 

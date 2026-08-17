@@ -65,7 +65,7 @@ metadata. Anything missing will make `cargo publish` warn or refuse.
 | `license`      | `"MIT OR Apache-2.0"` (SPDX dual-licence identifier).      |
 | `authors`      | `["SupaZip contributors"]` for now; expand when authors    |
 |                | add their handles.                                         |
-| `repository`   | `"https://github.com/<owner>/supazip"` placeholder is OK   |
+| `repository`   | `"https://github.com/your-org/supazip"` placeholder is OK  |
 |                | for the first cut.                                         |
 | `readme`       | `"../../README.md"` (relative to the crate root).          |
 | `keywords`     | ≤ 5 from the [crates.io keyword list](https://crates.io/    |
