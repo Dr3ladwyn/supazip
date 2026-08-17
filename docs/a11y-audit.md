@@ -68,6 +68,31 @@ The striped rows are a visual aid, not a text contrast concern — all text with
 
 **Result: PASS** — all text-bearing tokens exceed 4.5:1 on `#0E1116`.
 
+### Light theme (v2)
+
+Token-level contrast for `themes.light` was recorded when tokens 2.0 landed
+(`dd77c52`). All text-bearing light tokens meet WCAG 2.1 AA (≥ 4.5:1) on
+`color.bg.base = #F6F8FA`. Values are the comments in
+`design/tokens.yaml`, not a measured GUI pass:
+
+| Token | Hex | Ratio on `#F6F8FA` | AA |
+|-------|-----|--------------------|-----|
+| `fg.primary` | `#1F2328` | 14.8:1 | PASS (tokens) |
+| `fg.secondary` | `#59636E` | 5.7:1 | PASS (tokens) |
+| `fg.muted` | `#636C76` | 5.0:1 | PASS (tokens) |
+| `accent.primary` | `#0969DA` | 4.9:1 | PASS (tokens) |
+| `accent.primary_hover` | `#0550AE` | 7.1:1 | PASS (tokens) |
+| `accent.pressed` | `#033D8B` | 9.6:1 | PASS (tokens) |
+| `semantic.success` | `#166C2E` | 6.1:1 | PASS (tokens) |
+| `semantic.warning` | `#8A5C00` | 5.5:1 | PASS (tokens) |
+| `semantic.danger` | `#CF222E` | 5.0:1 | PASS (tokens) |
+| `semantic.info` | `#0969DA` | 4.9:1 | PASS (tokens) |
+
+This is **not** a 17-criterion GUI re-audit. `supazip-gui` still styles with
+literals; `Style::from_tokens` has not landed. After that mapping ships,
+re-run §3–§14 on **both** themes before calling 1.1 done. Until then, the
+summary table below remains the **dark-only** 1.0 desktop audit.
+
 ---
 
 ## 4. Non-Text Contrast (WCAG 1.4.11 — ≥ 3:1)
@@ -282,12 +307,16 @@ The application does not declare a document language (`lang` attribute). On desk
 | 4.1.2 Name, Role, Value | PARTIAL | Widget labels correct, but egui desktop does not expose a11y tree |
 | 2.3.3 Animation | PASS (notes) | Reduce-motion support documented for v1.1 |
 
-**Overall: 17 PASS, 2 PARTIAL, 0 FAIL**
+**Overall: 17 PASS, 2 PARTIAL, 0 FAIL** (dark GUI, 2026-06-07)
 
 The two PARTIAL items are framework-level limitations in egui 0.34:
 
 1. **1.3.1 / 4.1.2 (screen reader):** egui desktop does not expose an accessibility tree to NVDA, VoiceOver, or Orca. The widget labels are correct in code, but they are not announced by any screen reader on desktop builds. This is tracked on the egui roadmap (targeted for egui 0.35+).
 2. **Reduce motion:** Documented in the design system but not yet implemented in code. Tracked for v1.1.
+
+---
+
+Light theme (v2) is **not** included in the 17-row score. See **§3 Light theme (v2)** — token AA on `#F6F8FA` only; GUI re-audit after `Style::from_tokens`.
 
 ---
 

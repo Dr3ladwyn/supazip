@@ -1,10 +1,15 @@
-# SupaZip — Design system v1
+# SupaZip — Design system v2
 
-> **Status:** v1, dark-only. Canonical reference for every UI change in the GUI
+> **Status:** v2, dark + light. Canonical reference for every UI change in the GUI
 > (`supazip-gui`) and every visual change in the CLI (`supazip-cli`).
 > **Source of truth:** [`design/tokens.yaml`](design/tokens.yaml) and its JSON
 > mirror [`design/tokens.json`](design/tokens.json). This document explains the
 > *why*; the tokens file holds the *what*.
+>
+> Token `meta.version` is `2.0.0`. Colour lives under `themes.dark` and
+> `themes.light`; shared scales stay at the document root. The GUI will consume
+> tokens via `Style::from_tokens` (may land in a parallel commit). Until that
+> mapping ships, literals in `supazip-gui` must still match the token file.
 
 ## Scope and audience
 
@@ -14,10 +19,11 @@
   - CLI: `supazip-cli` (clap) — `list` subcommand table, status lines, error
     output, progress messages on stderr.
   - Brand: SVG logo (mark + lockup) in `assets/logo.svg`, `assets/logo-mark.svg`.
-- **Surfaces explicitly out of scope for v1.** A light theme, real PNG icons in
-  the toolbar, embedded TTF fonts in the repository, Fluent/Tailwind
-  hand-rolling, and a renderable CLI table implementation. Each is documented in
-  "Out of scope" near the end.
+- **In scope for 1.1 (this contract).** Light theme, embedded JetBrains Mono
+  (OFL), monoline toolbar icons, `Style::from_tokens` as the runtime path, and
+  driving `cmd_list` from [`design/cli-table.tera`](design/cli-table.tera).
+- **Surfaces explicitly out of scope.** Archive editor / in-place mutate,
+  Material / Tailwind / Aqua chrome. See "Out of scope" near the end.
 - **Audience.** Power users who currently live in PeaZip, 7-Zip, or WinRAR.
   They open archives in the dozens per day, navigate them with the keyboard,
   pipe the CLI into shell scripts, and notice every dropped frame and every
@@ -193,8 +199,9 @@ power users reading the same screen.
   `1024 B`.
 - Column 4 (`Encrypted`): left-aligned, narrow, value is `yes` or `-`.
 - Row height: **24 px** (compact). The grid is `striped(true)` so even rows use
-  `color.bg.sunken` and odd rows use `color.bg.raised`. This is the
-  spreadsheet look the audience expects.
+  `color.bg.sunken` and odd rows use `color.bg.raised` from the **active
+  theme** (`themes.dark` or `themes.light`). This is the spreadsheet look
+  the audience expects.
 
 **Toolbar layout.**
 
@@ -292,25 +299,25 @@ detail; the design says "single line, never wrap, always show the verb".)
 
 **Reduced-motion preference.** The OS-level "reduce motion" setting should
 be honoured: when set, all durations collapse to `0` and the indeterminate
-spinner is replaced by a static "Working…" label. (Implementation is in v1.1;
-v1 documents the contract.)
+spinner is replaced by a static "Working…" label. Implementation is in
+scope for 1.1 alongside `Style::from_tokens`.
 
 ---
 
 ## 6. Iconography
 
-**v1 is text-only in the toolbar.** Buttons read `Open…`, `Extract`,
-`Create…`, `Test`, `Cancel`. No icons. This is a deliberate choice: text is
-unambiguous, localises trivially, and renders identically across the four
-font fallbacks we ship (JetBrains Mono, Cascadia Mono, Consolas, system
-mono).
+**v1 shipped text-only in the toolbar.** Buttons read `Open…`, `Extract`,
+`Create…`, `Test`, `Cancel`. Text stays the primary label: it is
+unambiguous, localises trivially, and renders identically across the font
+fallback chain (JetBrains Mono, Cascadia Mono, Consolas, system mono).
 
-**v1.1 plan (documented, not in scope).** A monoline icon font, 14 px
-height, 1.5 px stroke, restricted to the toolbar. Five glyphs total:
-open-folder, extract-up, create-plus, test-check, cross-cancel. Until
-that ships, the icon set is *not* the brand; the typography is.
+**v2 / 1.1 (in scope).** Monoline SVG strokes in the toolbar — not PNG
+skins, not emoji. 14 px height, 1.5 px stroke, five glyphs: open-folder,
+extract-up, create-plus, test-check, cross-cancel. Icons sit beside the
+existing labels; they do not replace them. Until the glyphs land, the
+toolbar remains text-only and typography stays the brand.
 
-**Where icons may appear in v1.**
+**Where icons may appear.**
 
 - The logo. `assets/logo-mark.svg` (24×24 viewBox, `currentColor` stroke,
   1.5 px stroke) and `assets/logo.svg` (192×48 lockup). The mark is a
@@ -321,24 +328,27 @@ that ships, the icon set is *not* the brand; the typography is.
   semantic colour (success / muted). They are not used inside dense tables
   — tables stay pure text so the column width is predictable.
 
-**Where icons never appear in v1.**
+**Where icons never appear.**
 
 - The entry grid. No per-row status icons; the `Encrypted` column is
   `yes` or `-` and that is the entire signal.
-- The CLI. CLI is plain text only, fixed-width.
+- The CLI. CLI is plain text only, fixed-width (optional TTY colour on
+  stderr does not add glyphs).
 - The empty state. The app name and one sentence; nothing else.
 
 **Anti-pattern.** Do not paste an icon next to a label as decoration. Every
-icon in v1 either carries semantic meaning (logo, status bullet) or it is
-not there.
+icon either carries semantic meaning (logo, status bullet, toolbar glyph)
+or it is not there.
 
 ---
 
 ## 7. Accessibility commitments
 
-**Conformance target.** WCAG 2.1 AA. Every visible string in v1 has been
-checked at the colour-token level (see §10). A screen-reader pass and a
-keyboard-only walkthrough are gating checks before v1.0 ships.
+**Conformance target.** WCAG 2.1 AA. Every visible string is checked at the
+colour-token level for **both** themes (see §10). Dark tokens were audited
+against `#0E1116` for 1.0. Light tokens meet AA on `#F6F8FA` at the YAML
+level; a GUI re-audit is required after `Style::from_tokens` lands (see
+[`docs/a11y-audit.md`](docs/a11y-audit.md)).
 
 ### Keyboard
 
@@ -358,10 +368,10 @@ keyboard-only walkthrough are gating checks before v1.0 ships.
 ### Visible focus
 
 - **Focus ring:** 2 px solid `color.border.focus` (same hex as
-  `color.accent.primary`), inset 2 px from the element edge. Implemented
-  as a stroke *around* the element, not as a colour swap, so the focus
-  state is visible against both the toolbar (`color.bg.surface`) and the
-  central panel (`color.bg.base`).
+  `color.accent.primary` in the active theme), inset 2 px from the element
+  edge. Implemented as a stroke *around* the element, not as a colour swap,
+  so the focus state is visible against both the toolbar
+  (`color.bg.surface`) and the central panel (`color.bg.base`).
 - **Contrast of focus ring against any background it overlays:** ≥ 3:1
   (WCAG 1.4.11 non-text contrast). Verified at the token level.
 
@@ -375,7 +385,13 @@ keyboard-only walkthrough are gating checks before v1.0 ships.
   The exact wiring lives in v1.1.
 - The entry grid exposes row count and the focused row's name and size.
 
-### Contrast (WCAG 2.1 AA, verified against `color.bg.base = #0E1116`)
+### Contrast (WCAG 2.1 AA)
+
+Token paths below are relative to the active theme
+(`themes.dark.color.*` / `themes.light.color.*`). Ratios are measured
+against that theme's `color.bg.base`.
+
+**Dark** (`themes.dark`, `bg.base` = `#0E1116`)
 
 | Token                        | Hex      | Ratio  | Use                              |
 |------------------------------|----------|--------|----------------------------------|
@@ -391,8 +407,26 @@ keyboard-only walkthrough are gating checks before v1.0 ships.
 | `color.semantic.danger`      | `#F85149`| 5.1:1  | "Cancel" button, error prefix   |
 | `color.semantic.info`        | `#58A6FF`| 6.8:1  | Informational labels             |
 
+**Light** (`themes.light`, `bg.base` = `#F6F8FA`)
+
+| Token                        | Hex      | Ratio  | Use                              |
+|------------------------------|----------|--------|----------------------------------|
+| `color.fg.primary`           | `#1F2328`| 14.8:1 | Body text, default label         |
+| `color.fg.secondary`         | `#59636E`| 5.7:1  | Captions, column headers         |
+| `color.fg.muted`             | `#636C76`| 5.0:1  | Disabled controls, idle hints    |
+| `color.fg.inverse`           | `#FFFFFF`| n/a    | Text on accent backgrounds       |
+| `color.accent.primary`       | `#0969DA`| 4.9:1  | Focus ring, primary action       |
+| `color.accent.primary_hover` | `#0550AE`| 7.1:1  | Hover state of primary           |
+| `color.accent.pressed`       | `#033D8B`| 9.6:1  | Pressed state                    |
+| `color.semantic.success`     | `#166C2E`| 6.1:1  | "loaded", "OK", success status   |
+| `color.semantic.warning`     | `#8A5C00`| 5.5:1  | Warnings (e.g. size limit)       |
+| `color.semantic.danger`      | `#CF222E`| 5.0:1  | "Cancel" button, error prefix   |
+| `color.semantic.info`        | `#0969DA`| 4.9:1  | Informational labels             |
+
 Large text (≥ 18 px or ≥ 14 px bold) is held to 3:1 minimum; all of the
-above clears that bar with margin.
+above clears that bar with margin. Light ratios are token-level (from
+`tokens.yaml` 2.0); they are not a substitute for a GUI walkthrough after
+`Style::from_tokens` lands.
 
 ### Touch targets
 
@@ -402,12 +436,12 @@ above clears that bar with margin.
 - The status bar's interactive surface (in v1, none) must be **24 px
   tall**.
 
-### What we explicitly do not promise in v1
+### What we explicitly do not promise in v2
 
 - Full keyboard reconfiguration. Keybindings are not user-customisable.
-- High-contrast mode. The dark palette is the only palette; a future
-  "system" follow would derive a high-contrast variant from the same
-  tokens.
+- A separate high-contrast palette. Dark and light are the two shipped
+  themes; a future "system" follow may derive a high-contrast variant from
+  the same token shape, but that is not 1.1.
 - Screen-magnifier optimisation beyond what `egui` already provides.
 
 ---
@@ -451,9 +485,10 @@ trailing triple-dot is fine in English and Russian). The ellipsis in
 
 **Fonts.** JetBrains Mono (see §10) ships with full Latin and Cyrillic
 coverage, plus a generous set of box-drawing and Braille pattern glyphs.
-We do not bundle the TTF in the repository; the file
-[`assets/fonts/README.md`](assets/fonts/README.md) (Step 6) points to the
-official source and to the SIL Open Font License 1.1.
+v2 / 1.1 **embeds** the OFL TTF (Regular + Bold) so the GUI does not depend
+on a system install. Source, license, and intended `set_fonts` shape stay
+in [`assets/fonts/README.md`](assets/fonts/README.md). Fallback chain is
+unchanged: JetBrains Mono, Cascadia Mono, Consolas, `ui-monospace`.
 
 **Default language.** English at first launch. The user can switch via a
 (hidden in v1) env-var `SUPAZIP_LANG=ru`. There is no language picker UI in
@@ -564,9 +599,10 @@ v1.)
 
 ### Anti-patterns
 
-- ANSI colour codes. We do not emit them. A user who wants colour can
-  pipe through their terminal's colouriser. A future `--color=auto` flag
-  can opt in.
+- ANSI colour on stdout, or colour when stdout/stderr is not a TTY.
+  Default remains plain text. v2 / 1.1 may emit semantic colour on
+  **stderr** only when it is a TTY (`anstyle` / `supports-color`), driven
+  by the active theme tokens. Piped output stays uncoloured.
 - Spinners, ticks, or carriage-return overwrites on stdout. The CLI prints
   once and exits.
 - Localised "Loading…" / "Please wait". The CLI does not pretend to be
@@ -589,10 +625,14 @@ edits the JSON by hand. The CI step will fail if the two diverge.
 **What lives in the tokens file.**
 
 - `meta` — name, version, generator marker. Bumped manually on breaking
-  changes.
-- `color` — `bg`, `fg`, `accent`, `semantic`, `border`. All WCAG-AA checked
-  against `color.bg.base` = `#0E1116`. Contrast ratios in this document
-  (§7) match the values that will be asserted by the token sync script.
+  changes. Current: `2.0.0`.
+- `themes.dark` / `themes.light` — each owns a full `color` tree:
+  `bg`, `fg`, `accent`, `semantic`, `border`. Contrast is WCAG-AA checked
+  against **that theme's** `color.bg.base` (`#0E1116` dark, `#F6F8FA`
+  light). There is no top-level `color` map in 2.0; code that used
+  `color.fg.primary` now resolves `themes.<name>.color.fg.primary`.
+  Elevation strings interpolate `{color.border.subtle}` from the active
+  theme.
 - `typography` — `family`, `size`, `weight`, `line_height`. The `family`
   block is `JetBrains Mono` for `body`, `heading`, and `mono`. The
   fallback chain is system-defined in code: `JetBrains Mono`,
@@ -606,68 +646,69 @@ edits the JSON by hand. The CI step will fail if the two diverge.
 - `elevation` — `level_0` none, `level_1` a 1 px solid bottom border in
   `color.border.subtle`, `level_2` a 1 px solid border plus a faint drop
   shadow. The GUI uses `level_1` for the toolbar/status bar separator and
-  `level_0` everywhere else; `level_2` is reserved for dialogs in v1.1.
+  `level_2` for dialogs (password, progress, settings). Do not use
+  Material-style stacked shadows.
 - `z_index` — `base` 0, `dropdown` 100, `modal` 200, `tooltip` 300. egui
-  does not surface a z-index knob to us in v1; the values are reserved
-  for the future.
+  does not surface a z-index knob to us; the values are reserved for the
+  future.
 
-**How the GUI uses the tokens.** In v1 the GUI is hand-styled: the toolbar
-height, the row height, the colour of the disabled state, and the
-`item_spacing` are all literal numbers in the code (see
-`supazip/supazip-gui/src/main.rs`). A v1.1 PR will introduce a
-`Style::from_tokens()` function that maps the YAML into an
-`egui::Style`. Until that lands, the contract is that *every literal
-number in the GUI source matches a value in this tokens file* — which
-is verified by a grep-based check in `scripts/ci-design.ps1` (Step 8).
+**How the GUI uses the tokens.** The intended runtime path is
+`Style::from_tokens(theme)` mapping YAML into `egui::Visuals` /
+`egui::Style` (settings already persist a theme preference; 1.1 adds
+`Dark | Light | System`). That helper may land in a parallel commit —
+do not assume it is present in every checkout that has tokens 2.0.
+Until it lands, the contract is that *every literal number and hex in
+the GUI source matches a value in this tokens file* — verified by
+`scripts/ci-design.ps1`. Do not pull egui into `supazip-core`; keep the
+mapper in `supazip-gui` (or a thin `supazip-theme` crate without egui).
 
-**How the CLI uses the tokens.** The CLI does not consume the tokens
-file directly. The table column widths in `cmd_list` are the source of
-truth for the CLI, and the `cli-table.tera` template (Step 3) is the
-source of truth for the layout. The token file documents the *visual*
-scale (12 px body, 14 px heading, the `─` rule line); the *column
-widths* are a CLI-formatting concern, not a token concern.
+**How the CLI uses the tokens.** Column widths stay a CLI-formatting
+concern. 1.1 drives `cmd_list` from [`design/cli-table.tera`](design/cli-table.tera)
+instead of a hand-kept format string. Optional TTY colour on stderr may
+read semantic tokens from the active theme; stdout stays plain.
 
-**Bumping the version.** `meta.version` is `1.0.0` for v1. Breaking
-changes to the palette (a recolour, a new background shade) bump the
+**Bumping the version.** `meta.version` is `2.0.0` for this contract.
+Breaking changes to the palette or to the `themes.*` shape bump the
 minor. Adding a new token without changing an existing one bumps the
 patch. The token sync script checks that the JSON mirror reports the
 same version.
 
 ---
 
-## Out of scope for v1 (explicit)
+## Out of scope (explicit)
 
-The following are documented for context and tracked in the v1.1 backlog;
-they are *not* part of v1 and adding them to v1 PRs will be rejected.
+Light theme, embedded JetBrains Mono, and monoline toolbar icons are **in
+scope for 1.1** — they are no longer backlog. The items below stay out.
+Adding them to a 1.1 PR will be rejected.
 
-- **Light theme.** v1 is dark-only. A dual-theme system in v1.1 will
-  introduce a parallel `color.bg.base.light` and a `theme` switch on
-  `egui::Style`.
-- **Real PNG icons in the toolbar.** v1 ships with text labels. The
-  monoline icon font is a v1.1 deliverable; until then, the toolbar reads
-  as `Open…` / `Extract` / `Create…` / `Test` / `Cancel`.
-- **Embedded TTF in the repository.** The font is OFL-licensed, so
-  embedding is legal; we keep the repo small and document the source
-  instead. Loading the TTF at runtime is a v1.1 task in
-  `App::ui`/`eframe::CreationContext`.
-- **egui_kittest snapshots.** Dev-dependency and a headless harness
-  required. v1.1, after the v1 visual review.
-- **A second CLI render path** (e.g. JSON output, `jq`-friendly). Out of
-  scope; the design is fixed-width tables only.
-- **Tailwind / Fluent / Material theming.** We are not a web app and the
-  audience does not want soft drop-shadows.
+- **Archive editor.** In-place add / delete / rename of entries. `ArchiveFormat`
+  does not mutate; that is a 1.2 architectural decision.
+- **Material / Tailwind / Aqua / Fluent chrome.** No elevation-through-shadow
+  as a design language, no translucency, no spring physics, no glossy
+  gradients. `elevation.level_2` is a 1 px border plus a faint dialog
+  shadow — not Material stacking.
+- **Aesthetic reset.** We are not becoming a conventional desktop 7-Zip
+  clone. Precise / dense / calm stays.
+- **Product 1.2 features.** RAR (external helper only, never default in
+  core), async backends, CLI self-update, file associations, text-entry
+  preview. See [`docs/milestones/m1.1.0-design-v2.md`](docs/milestones/m1.1.0-design-v2.md).
+- **egui_kittest snapshots.** Optional after the 1.1 visual review; not a
+  gate for `Style::from_tokens`.
+- **High-contrast theme.** Not a third palette in 1.1.
 
 ---
 
 ## Cross-references
 
-- Plan source: `c:\Users\Admin\.cursor\plans\supazip_design_system_v1_d759c9e0.plan.md`
+- Plan source (v2): `c:\Users\Admin\.cursor\plans\post-1.0_code_and_design_35058910.plan.md`
+- Milestone: [`docs/milestones/m1.1.0-design-v2.md`](docs/milestones/m1.1.0-design-v2.md)
 - GUI source: `supazip/supazip-gui/src/main.rs`, `supazip/supazip-gui/src/lib.rs`
 - CLI source: `supazip/supazip-cli/src/main.rs`
-- Token files: `design/tokens.yaml`, `design/tokens.json` (Step 2)
-- CLI table layout: `design/cli-table.tera` (Step 3)
-- Brand assets: `assets/logo.svg`, `assets/logo-mark.svg` (Step 4)
-- i18n table: `assets/i18n/en.toml`, `assets/i18n/ru.toml` (Step 5)
-- Font documentation: `assets/fonts/README.md` (Step 6)
-- Sync scripts: `design/scripts/check_tokens.py`, `design/scripts/check_i18n.py` (Step 7)
-- CI hook: `scripts/ci-design.ps1` (Step 8)
+- Token files: `design/tokens.yaml`, `design/tokens.json` (`meta.version` 2.0.0)
+- CLI table layout: `design/cli-table.tera`
+- Brand assets: `assets/logo.svg`, `assets/logo-mark.svg`
+- i18n table: `assets/i18n/en.toml`, `assets/i18n/ru.toml`, `assets/i18n/de.toml`
+- Font documentation: `assets/fonts/README.md`
+- A11y: [`docs/a11y-audit.md`](docs/a11y-audit.md)
+- Sync scripts: `design/scripts/check_tokens.py`, `design/scripts/check_i18n.py`
+- CI hook: `scripts/ci-design.ps1`
