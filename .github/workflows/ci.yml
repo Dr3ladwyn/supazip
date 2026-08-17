@@ -58,7 +58,6 @@ jobs:
         with:
           python-version: '3.11'
       - name: Run design sync checks
-        working-directory: supazip
         run: |
           python design/scripts/check_tokens.py
           python design/scripts/check_i18n.py

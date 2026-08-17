@@ -12,7 +12,8 @@ minimum**.
 # One-time install (requires Rust nightly or stable with llvm-tools):
 cargo install cargo-llvm-cov
 
-# Run coverage and open the HTML report:
+# Run coverage from the Cargo workspace (repo-root `supazip/`):
+cd supazip
 cargo llvm-cov --workspace --open
 ```
 
@@ -47,5 +48,5 @@ In CI the flag can be added to the `cargo llvm-cov` invocation in
 
 ## Badge
 
-The README badge links to the Codecov dashboard. Replace `<owner>` in the
-URL with your GitHub user or organisation name.
+The README badge links to the Codecov dashboard. The owner in that URL is
+the placeholder `your-org` until a real GitHub repository exists.
