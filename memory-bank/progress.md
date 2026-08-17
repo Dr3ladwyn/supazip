@@ -22,11 +22,25 @@
 
 ## Done
 
-All roadmap milestones completed. 76 commits, 6 tags (v0.2.0 through v1.0.0).
+All roadmap milestones completed. 6 tags (v0.2.0 through v1.0.0).
 
-## Next (post-1.0.0)
+## v1.0.1 Harden (2026-08-17, unreleased)
 
-- [ ] Replace `<owner>` placeholder in packaging manifests, README, SECURITY.md with real GitHub handle.
+- [x] Single identity placeholder `your-org/supazip` (README, SECURITY.md,
+      packaging, Cargo.toml, issue templates).
+- [x] CI: `design/scripts/` from repo root; `cargo llvm-cov` in `supazip/`.
+- [x] Release: unique artifact names; `.tar.gz` / `.zip` packages; minisign
+      skip-with-warning when secrets are missing.
+- [x] CLI completions + man page regenerated from clap (not TODO stubs).
+- [x] CHANGELOG: 1.0.0 dated 2026-06-07; `[Unreleased]` moved; `[1.0.1]` added.
+- [x] PeaZip nested checkout ignored; gitlink removed from the index.
+- [x] packaging README: hashes filled after first GitHub Release.
+- [x] Crate versions bumped to 1.0.1.
+
+## Next (post-1.0.1)
+
+- [ ] Replace `your-org` with a real GitHub handle when the public repo exists.
 - [ ] `git push && git push --tags` to publish.
+- [ ] Fill packaging hashes from the first GitHub Release.
 - [ ] Publish to crates.io (requires API token; see `docs/publishing.md`).
-- [ ] **1.1**: light theme, self-update, RAR support, async backends.
+- [ ] **1.1**: design system v2 (tokens runtime, light theme) — separate track.
