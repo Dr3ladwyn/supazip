@@ -19,9 +19,10 @@
 //! type under the name `ProgressState` for callers that do not need to
 //! import the core type.
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
 
+use eframe::egui;
 use supazip_core::traits::{ProgressCallback, ProgressUpdate};
 
 /// Per-operation progress tracked in entry-count units. Sized to `u32`
@@ -31,11 +32,11 @@ use supazip_core::traits::{ProgressCallback, ProgressUpdate};
 /// thread through [`Arc<ProgressDialog>`].
 pub struct ProgressDialog {
     /// Total number of entries the worker expects to process.
-    pub total_entries: u32,
+    pub total_entries: AtomicU32,
     /// Entries the worker has finished so far.
-    pub done_entries: u32,
+    pub done_entries: AtomicU32,
     /// Human-readable name of the entry currently being processed.
-    pub current_entry: String,
+    pub current_entry: Mutex<String>,
     /// Set by the UI to ask the worker to stop. Read by the worker in its
     /// hot loop. Stored as an [`AtomicBool`] so the UI never needs to take
     /// a lock to flip it.
@@ -46,9 +47,9 @@ impl ProgressDialog {
     /// Allocate a fresh zeroed state with cancellation cleared.
     pub fn new() -> Self {
         Self {
-            total_entries: 0,
-            done_entries: 0,
-            current_entry: String::new(),
+            total_entries: AtomicU32::new(0),
+            done_entries: AtomicU32::new(0),
+            current_entry: Mutex::new(String::new()),
             is_cancelled: AtomicBool::new(false),
         }
     }
@@ -58,10 +59,11 @@ impl ProgressDialog {
     /// `set_total`); the bar then renders as empty, which is the right
     /// behaviour for a not-yet-measured operation.
     pub fn fraction(&self) -> f32 {
-        if self.total_entries == 0 {
+        let total = self.total_entries.load(Ordering::Relaxed);
+        if total == 0 {
             0.0
         } else {
-            (self.done_entries as f32) / (self.total_entries as f32)
+            (self.done_entries.load(Ordering::Relaxed) as f32) / (total as f32)
         }
     }
 
@@ -84,12 +86,18 @@ impl Default for ProgressDialog {
 
 impl ProgressCallback for ProgressDialog {
     fn set_progress(&self, current: u64, total: u64) {
-        self.total_entries = u32::try_from(total).unwrap_or(u32::MAX);
-        self.done_entries = u32::try_from(current).unwrap_or(u32::MAX);
+        self.total_entries
+            .store(u32::try_from(total).unwrap_or(u32::MAX), Ordering::Relaxed);
+        self.done_entries.store(
+            u32::try_from(current).unwrap_or(u32::MAX),
+            Ordering::Relaxed,
+        );
     }
 
     fn set_message(&self, message: &str) {
-        self.current_entry = message.to_string();
+        if let Ok(mut current) = self.current_entry.lock() {
+            *current = message.to_string();
+        }
     }
 
     fn is_cancelled(&self) -> bool {
@@ -134,7 +142,9 @@ impl ProgressCallback for GuiProgress {
         // The core API talks in u64, but our ProgressState is u32-entry
         // based. Saturate to u32::MAX to avoid a panic on the very large
         // archives; the bar still saturates at 100% in that case.
-        self.inner.total_entries = u32::try_from(total).unwrap_or(u32::MAX);
+        self.inner
+            .total_entries
+            .store(u32::try_from(total).unwrap_or(u32::MAX), Ordering::Relaxed);
         // The engine reports bytes-processed here in the legacy core API;
         // we do not know the entry count up front so we leave
         // `done_entries` untouched. The worker drives it explicitly via
@@ -142,7 +152,9 @@ impl ProgressCallback for GuiProgress {
     }
 
     fn set_message(&self, message: &str) {
-        self.inner.current_entry = message.to_string();
+        if let Ok(mut current) = self.inner.current_entry.lock() {
+            *current = message.to_string();
+        }
     }
 
     fn is_cancelled(&self) -> bool {
@@ -150,27 +162,9 @@ impl ProgressCallback for GuiProgress {
     }
 }
 
-/// The shared [`ProgressState`] itself implements [`ProgressCallback`]
-/// directly when wrapped in an [`Arc`]. The engine accepts
-/// `&dyn ProgressCallback`, so a worker can hand the controller's
-/// `Arc<ProgressState>` straight in without going through the
-/// [`GuiProgress`] adapter. The adapter exists for code that wants the
-/// ownership story to be explicit (it is constructed on the worker stack
-/// from the `Arc` and never leaves the worker).
-impl ProgressCallback for Arc<ProgressState> {
-    fn set_progress(&self, current: u64, total: u64) {
-        self.total_entries = u32::try_from(total).unwrap_or(u32::MAX);
-        self.done_entries = u32::try_from(current).unwrap_or(u32::MAX);
-    }
-
-    fn set_message(&self, message: &str) {
-        self.current_entry = message.to_string();
-    }
-
-    fn is_cancelled(&self) -> bool {
-        ProgressState::is_cancelled(self)
-    }
-}
+/// `impl ProgressCallback for Arc<ProgressState>` is not allowed (orphan
+/// rules: `Arc` is foreign). Workers should wrap the `Arc` in
+/// [`GuiProgress`].
 
 // ---------------------------------------------------------------------------
 // ChannelProgress -> Arc<ProgressState> bridge.
@@ -192,11 +186,19 @@ pub fn apply_progress_update(state: &ProgressState, update: ProgressUpdate) {
     // them as independent signals and overwrite only the fields that
     // carry a value.
     if update.total > 0 {
-        state.total_entries = u32::try_from(update.total).unwrap_or(u32::MAX);
-        state.done_entries = u32::try_from(update.current).unwrap_or(u32::MAX);
+        state.total_entries.store(
+            u32::try_from(update.total).unwrap_or(u32::MAX),
+            Ordering::Relaxed,
+        );
+        state.done_entries.store(
+            u32::try_from(update.current).unwrap_or(u32::MAX),
+            Ordering::Relaxed,
+        );
     }
     if !update.message.is_empty() {
-        state.current_entry = update.message;
+        if let Ok(mut current) = state.current_entry.lock() {
+            *current = update.message;
+        }
     }
 }
 
@@ -215,12 +217,19 @@ pub fn show_progress_modal(ctx: &egui::Context, state: &ProgressState) {
         .collapsible(false)
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .frame(crate::theme::dialog_frame(ctx))
         .show(ctx, |ui| {
             ui.add(egui::ProgressBar::new(state.fraction()).text(format!(
                 "{}/{} entries",
-                state.done_entries, state.total_entries
+                state.done_entries.load(Ordering::Relaxed),
+                state.total_entries.load(Ordering::Relaxed)
             )));
-            ui.label(format!("Current: {}", state.current_entry));
+            let current = state
+                .current_entry
+                .lock()
+                .map(|s| s.clone())
+                .unwrap_or_default();
+            ui.label(format!("Current: {current}"));
             if ui.button("Cancel").clicked() {
                 state.cancel();
             }
@@ -241,9 +250,9 @@ mod tests {
     #[test]
     fn progress_state_fraction_half() {
         let s = ProgressState {
-            total_entries: 10,
-            done_entries: 5,
-            current_entry: String::new(),
+            total_entries: AtomicU32::new(10),
+            done_entries: AtomicU32::new(5),
+            current_entry: Mutex::new(String::new()),
             is_cancelled: AtomicBool::new(false),
         };
         assert!((s.fraction() - 0.5).abs() < f32::EPSILON);
@@ -270,7 +279,7 @@ mod tests {
         let state = Arc::new(ProgressState::new());
         let adapter = GuiProgress::new(state.clone());
         adapter.set_progress(0, 50);
-        assert_eq!(state.total_entries, 50);
+        assert_eq!(state.total_entries.load(Ordering::Relaxed), 50);
     }
 
     #[test]
@@ -278,9 +287,9 @@ mod tests {
         let state = Arc::new(ProgressState::new());
         let adapter = GuiProgress::new(state.clone());
         adapter.set_message("a/b/c.txt");
-        assert_eq!(state.current_entry, "a/b/c.txt");
+        assert_eq!(state.current_entry.lock().unwrap().as_str(), "a/b/c.txt");
         adapter.set_message("hello");
-        assert_eq!(state.current_entry, "hello");
+        assert_eq!(state.current_entry.lock().unwrap().as_str(), "hello");
     }
 
     #[test]
@@ -295,17 +304,17 @@ mod tests {
     #[test]
     fn apply_progress_update_message_only_does_not_reset_totals() {
         let state = ProgressState::new();
-        state.total_entries = 10;
-        state.done_entries = 3;
+        state.total_entries.store(10, Ordering::Relaxed);
+        state.done_entries.store(3, Ordering::Relaxed);
         let update = ProgressUpdate {
             current: 0,
             total: 0,
             message: "entry.txt".to_string(),
         };
         apply_progress_update(&state, update);
-        assert_eq!(state.total_entries, 10);
-        assert_eq!(state.done_entries, 3);
-        assert_eq!(state.current_entry, "entry.txt");
+        assert_eq!(state.total_entries.load(Ordering::Relaxed), 10);
+        assert_eq!(state.done_entries.load(Ordering::Relaxed), 3);
+        assert_eq!(state.current_entry.lock().unwrap().as_str(), "entry.txt");
     }
 
     #[test]
@@ -317,7 +326,7 @@ mod tests {
             message: String::new(),
         };
         apply_progress_update(&state, update);
-        assert_eq!(state.total_entries, 9);
-        assert_eq!(state.done_entries, 7);
+        assert_eq!(state.total_entries.load(Ordering::Relaxed), 9);
+        assert_eq!(state.done_entries.load(Ordering::Relaxed), 7);
     }
 }

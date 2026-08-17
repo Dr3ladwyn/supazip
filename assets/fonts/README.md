@@ -6,11 +6,13 @@ install it locally for development and GUI testing. The font binary itself is
 **not** committed to this repository — every developer fetches it directly
 from the upstream source.
 
-> **Status (Шаг 6 / Step 6 of the design system plan):** documentation only.
-> No font loading code is wired into `supazip-gui` yet. A future PR will call
-> `egui::Context::set_fonts(...)` to register the typeface; see
-> [§5 Code integration](#5-code-integration-future) below for the planned
-> shape of that helper.
+> **Status (design system v2):** `supazip-gui` calls `theme::install_fonts` on
+> startup. Embedding is **compile-time gated**: if
+> `assets/fonts/JetBrainsMono-Regular.ttf` is present, `build.rs` sets
+> `embed_jetbrains_mono` and the TTF is baked in via `include_bytes!`.
+> The OFL TTF is **not** in this repository (and must not be committed
+> without `OFL.txt` alongside it). Until that file is added, the GUI keeps
+> egui's built-in / system fallback. See [§5](#5-code-integration).
 
 ---
 
@@ -119,36 +121,17 @@ The files land in `~/Library/Fonts/`.
 
 ---
 
-## 5. Code integration (future)
+## 5. Code integration
 
-`egui` 0.34 registers custom fonts through `egui::Context::set_fonts`. This
-section captures the intended shape of a `setup_fonts` helper for
-`supazip-gui`. **It is a future-PR example — do not treat it as wired in
-yet.**
+`supazip-gui` wires fonts in `theme::install_fonts`, called from
+`eframe::CreationContext` in `main.rs`. `build.rs` probes
+`assets/fonts/JetBrainsMono-Regular.ttf` (and optionally the Bold cut).
+When the file exists, `include_bytes!` embeds it and both `Proportional`
+and `Monospace` families put `jetbrains_mono` first.
 
-```rust
-// supazip-gui/src/fonts.rs
-use egui::{Context, FontData, FontDefinitions, FontFamily};
-
-pub fn setup_fonts(ctx: &Context) {
-    let mut fonts = FontDefinitions::default();
-    let bytes = include_bytes!("../../assets/fonts/JetBrainsMono-Regular.ttf");
-    fonts.font_data.insert(
-        "jetbrains_mono".into(),
-        FontData::from_static(bytes).into(),
-    );
-    fonts.families.get_mut(&FontFamily::Proportional).unwrap()
-        .insert(0, "jetbrains_mono".into());
-    fonts.families.get_mut(&FontFamily::Monospace).unwrap()
-        .insert(0, "jetbrains_mono".into());
-    ctx.set_fonts(fonts);
-}
-```
-
-The full integration PR will also add the `Bold` weight via a second
-`font_data` entry and a styled `FontFamily`, plus a graceful fallback when
-the TTF is missing on disk (e.g. when running from a stripped release
-binary). That PR will live in a separate step of the design system plan.
+**Embedding lands when the OFL TTF is added** to `assets/fonts/` together
+with `OFL.txt`. Until then the helper is a no-op and egui keeps its
+built-in fallback chain. Do not commit a TTF without the license file.
 
 ---
 
@@ -210,6 +193,6 @@ When a new JetBrains Mono release ships:
 4. Re-run the verification in §6 and update the design system reference
    board.
 
-Do **not** open a PR that commits the TTF binaries to `assets/fonts/`.
-The directory stays empty in version control; this README is the entire
-contract.
+Do **not** commit the TTF binaries without `OFL.txt` in the same
+directory. When the licensed files are added, the next `supazip-gui`
+build embeds Regular (and Bold if present) automatically.

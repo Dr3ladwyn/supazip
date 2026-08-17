@@ -12,8 +12,9 @@ use supazip_core::traits::ProgressState;
 use supazip_core::{formats, Limits};
 
 use supazip_gui::context_menu::{EntryAction, EntryContextAction};
+use supazip_gui::icons::{ToolbarButton, ToolbarIcon};
 use supazip_gui::{
-    dialogs, dnd, AppController, EngineEvent, OpenEntry, PasswordOpKind, PasswordTarget,
+    dialogs, dnd, theme, AppController, EngineEvent, OpenEntry, PasswordOpKind, PasswordTarget,
 };
 
 // ---------------------------------------------------------------------------
@@ -26,7 +27,16 @@ pub struct App {
 }
 
 impl eframe::App for App {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // eframe 0.34: `update` is deprecated; apply tokens before paint.
+        theme::apply(ctx, self.ctrl.state().settings.theme);
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        // Re-apply in `ui` so a theme change from Settings takes effect
+        // this frame even if `logic` was skipped by a host.
+        theme::apply(ui.ctx(), self.ctrl.state().settings.theme);
+
         // Drain engine events first so the UI reflects the latest state.
         self.ctrl.drain();
 
@@ -56,99 +66,103 @@ impl eframe::App for App {
             dnd::render_drop_overlay(ui.ctx());
         }
 
-        egui::Panel::top("toolbar").show_inside(ui, |ui| {
-            ui.horizontal(|ui| {
-                let busy = self.ctrl.state().busy;
-                if ui.add_enabled(!busy, egui::Button::new("Open…")).clicked() {
-                    self.open_dialog();
-                }
-                // WS-D: "Recent ▾" dropdown — 10 most-recent paths.
-                // Disabled when the persisted list is empty.
-                let recent = self.ctrl.state().recent.clone();
-                let recent_label = if recent.is_empty() {
-                    "Recent ▾".to_string()
-                } else {
-                    format!("Recent ▾ ({})", recent.len())
-                };
-                let recent_btn =
-                    ui.add_enabled(!busy && !recent.is_empty(), egui::Button::new(recent_label));
-                if recent_btn.clicked() {
-                    ui.memory_mut(|mem| mem.toggle_popup(egui::Id::new("recent_menu")));
-                }
-                egui::popup::popup_below_widget(
-                    ui,
-                    egui::Id::new("recent_menu"),
-                    &recent_btn,
-                    egui::PopupCloseBehavior::CloseOnClickOutside,
-                    |ui| {
-                        ui.set_min_width(320.0);
-                        if recent.is_empty() {
-                            ui.label("(no recent files)");
-                        } else {
-                            // Lazy-prune missing files once when the menu
-                            // opens. The pruned list is then used for the
-                            // menu contents; the new state is written back
-                            // through `apply(EngineEvent::Done("…"))` is
-                            // overkill — we just call the helper directly.
-                            for entry in &recent {
-                                let label = entry.path.display().to_string();
-                                if ui.button(&label).clicked() {
-                                    let p = entry.path.clone();
-                                    ui.memory_mut(|mem| mem.close_popup());
-                                    if p.exists() {
-                                        self.spawn_list(p);
-                                    } else {
-                                        self.ctrl.apply(EngineEvent::Error(format!(
-                                            "missing: {}",
-                                            p.display()
-                                        )));
+        egui::Panel::top("toolbar")
+            .frame(theme::chrome_frame(ui.ctx()))
+            .show_inside(ui, |ui| {
+                ui.horizontal(|ui| {
+                    let busy = self.ctrl.state().busy;
+                    if ui
+                        .add_enabled(!busy, ToolbarButton::new(ToolbarIcon::Open, "Open…"))
+                        .clicked()
+                    {
+                        self.open_dialog();
+                    }
+                    // WS-D: "Recent" dropdown — 10 most-recent paths.
+                    // Disabled when the persisted list is empty. Text label
+                    // stays next to the monoline icon (a11y).
+                    let recent = self.ctrl.state().recent.clone();
+                    let recent_label = if recent.is_empty() {
+                        "Recent".to_string()
+                    } else {
+                        format!("Recent ({})", recent.len())
+                    };
+                    let recent_btn = ui.add_enabled(
+                        !busy && !recent.is_empty(),
+                        ToolbarButton::new(ToolbarIcon::Recent, recent_label),
+                    );
+                    egui::Popup::from_toggle_button_response(&recent_btn)
+                        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                        .show(|ui| {
+                            ui.set_min_width(320.0);
+                            if recent.is_empty() {
+                                ui.label("(no recent files)");
+                            } else {
+                                for entry in &recent {
+                                    let label = entry.path.display().to_string();
+                                    if ui.button(&label).clicked() {
+                                        let p = entry.path.clone();
+                                        if p.exists() {
+                                            self.spawn_list(p);
+                                        } else {
+                                            self.ctrl.apply(EngineEvent::Error(format!(
+                                                "missing: {}",
+                                                p.display()
+                                            )));
+                                        }
                                     }
                                 }
+                                ui.separator();
+                                if ui.button("Clear recent").clicked() {
+                                    self.clear_recent_clicked();
+                                }
                             }
-                            ui.separator();
-                            if ui.button("Clear recent").clicked() {
-                                self.clear_recent_clicked();
-                                ui.memory_mut(|mem| mem.close_popup());
-                            }
-                        }
-                    },
-                );
-                let can_extract = self.ctrl.state().open_archive.is_some() && !busy;
-                if ui
-                    .add_enabled(can_extract, egui::Button::new("Extract"))
-                    .clicked()
-                {
-                    self.extract_clicked();
-                }
-                if ui
-                    .add_enabled(!busy, egui::Button::new("Create…"))
-                    .clicked()
-                {
-                    self.create_clicked();
-                }
-                let can_test = self.ctrl.state().open_archive.is_some() && !busy;
-                if ui
-                    .add_enabled(can_test, egui::Button::new("Test"))
-                    .clicked()
-                {
-                    self.test_clicked();
-                }
-                if busy && ui.button("Cancel").clicked() {
-                    self.ctrl.cancel();
-                }
+                        });
+                    let can_extract = self.ctrl.state().open_archive.is_some() && !busy;
+                    if ui
+                        .add_enabled(
+                            can_extract,
+                            ToolbarButton::new(ToolbarIcon::Extract, "Extract"),
+                        )
+                        .clicked()
+                    {
+                        self.extract_clicked();
+                    }
+                    if ui
+                        .add_enabled(!busy, ToolbarButton::new(ToolbarIcon::Create, "Create…"))
+                        .clicked()
+                    {
+                        self.create_clicked();
+                    }
+                    let can_test = self.ctrl.state().open_archive.is_some() && !busy;
+                    if ui
+                        .add_enabled(can_test, ToolbarButton::new(ToolbarIcon::Test, "Test"))
+                        .clicked()
+                    {
+                        self.test_clicked();
+                    }
+                    if busy
+                        && ui
+                            .add(ToolbarButton::new(ToolbarIcon::Cancel, "Cancel"))
+                            .clicked()
+                    {
+                        self.ctrl.cancel();
+                    }
+                });
             });
-        });
 
-        egui::Panel::bottom("statusbar").show_inside(ui, |ui| {
-            ui.horizontal(|ui| {
-                if self.ctrl.state().busy {
-                    ui.spinner();
-                }
-                ui.label(&self.ctrl.state().status);
+        egui::Panel::bottom("statusbar")
+            .frame(theme::chrome_frame(ui.ctx()))
+            .show_inside(ui, |ui| {
+                ui.horizontal(|ui| {
+                    if self.ctrl.state().busy {
+                        ui.spinner();
+                    }
+                    ui.label(&self.ctrl.state().status);
+                });
             });
-        });
 
-        egui::CentralPanel::default().show_inside(ui, |ui| match &self.ctrl.state().open_archive {
+        let open_archive = self.ctrl.state().open_archive.clone();
+        egui::CentralPanel::default().show_inside(ui, |ui| match &open_archive {
             Some(oa) => {
                 ui.heading(format!("{} ({})", oa.path.display(), oa.backend_name));
                 egui::ScrollArea::vertical().show(ui, |ui| {
@@ -209,6 +223,10 @@ impl eframe::App for App {
             );
             self.ctrl.state_mut().show_settings = show_settings;
         }
+    }
+
+    fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
+        visuals.panel_fill.to_normalized_gamma_f32()
     }
 }
 
@@ -298,7 +316,7 @@ impl App {
 
     fn spawn_list_with_password(&mut self, path: PathBuf, password: Option<String>) {
         let tx = self.ctrl.engine_sender();
-        let cancel = self.ctrl.cancel_handle();
+        let _cancel = self.ctrl.cancel_handle();
         self.ctrl.mark_busy(format!("opening {}…", path.display()));
         std::thread::spawn(move || {
             let ev = run_list_blocking(&path, password.as_deref());
@@ -374,7 +392,7 @@ impl App {
     /// the intent in state (busy / status) for every variant; the GUI
     /// additionally spawns a worker for the extract variants.
     fn dispatch_entry_action(&mut self, action: EntryContextAction) {
-        match action.kind {
+        match &action.kind {
             EntryAction::ExtractHere(dest) | EntryAction::ExtractTo(dest) => {
                 let Some(oa) = self.ctrl.state().open_archive.clone() else {
                     return;
@@ -610,6 +628,7 @@ fn run_create_blocking(
     let opts = supazip_core::traits::CreateOptions {
         compression_method: "deflate".to_string(),
         compression_level: None,
+        ..supazip_core::traits::CreateOptions::default()
     };
     let cb: &dyn supazip_core::traits::ProgressCallback = progress;
     match backend.create(writer, inputs, &opts, password, cb, limits) {
@@ -659,10 +678,17 @@ fn main() {
         .build()
         .expect("tokio runtime");
 
-    let app = App::default();
     let native_options = eframe::NativeOptions::default();
-    if let Err(e) = eframe::run_native("SupaZip", native_options, Box::new(|_cc| Ok(Box::new(app))))
-    {
+    if let Err(e) = eframe::run_native(
+        "SupaZip",
+        native_options,
+        Box::new(|cc| {
+            let app = App::default();
+            theme::install_fonts(&cc.egui_ctx);
+            theme::apply(&cc.egui_ctx, app.ctrl.state().settings.theme);
+            Ok(Box::new(app))
+        }),
+    ) {
         eprintln!("eframe failed: {e}");
         std::process::exit(1);
     }

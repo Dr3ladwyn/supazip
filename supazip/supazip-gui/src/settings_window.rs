@@ -7,7 +7,8 @@
 
 use eframe::egui;
 
-use crate::settings::Settings;
+use crate::settings::{Settings, ThemePreference};
+use crate::theme;
 
 /// Show the settings window.
 ///
@@ -21,6 +22,7 @@ pub fn show_settings_window(ctx: &egui::Context, settings: &mut Settings, open: 
         .collapsible(false)
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .frame(theme::dialog_frame(ctx))
         .open(open)
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
@@ -44,6 +46,21 @@ pub fn show_settings_window(ctx: &egui::Context, settings: &mut Settings, open: 
             ui.horizontal(|ui| {
                 ui.label("Recent files limit:");
                 ui.add(egui::DragValue::new(&mut settings.recent_files_limit).range(1..=50));
+            });
+            ui.horizontal(|ui| {
+                ui.label("Theme:");
+                let theme_label = match settings.theme {
+                    ThemePreference::Dark => "Dark",
+                    ThemePreference::Light => "Light",
+                    ThemePreference::System => "System",
+                };
+                egui::ComboBox::from_id_salt("theme")
+                    .selected_text(theme_label)
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut settings.theme, ThemePreference::Dark, "Dark");
+                        ui.selectable_value(&mut settings.theme, ThemePreference::Light, "Light");
+                        ui.selectable_value(&mut settings.theme, ThemePreference::System, "System");
+                    });
             });
             ui.horizontal(|ui| {
                 ui.label("Debug overlay:");

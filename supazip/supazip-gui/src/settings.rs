@@ -7,6 +7,20 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+/// User-facing theme choice persisted in `settings.json`.
+///
+/// `System` follows the OS preference via egui's `ThemePreference`.
+/// Default is `Dark` so existing 1.0 installs keep the terminal palette
+/// until the user opts into light or system.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ThemePreference {
+    #[default]
+    Dark,
+    Light,
+    System,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Settings {
     /// `None` = system default language.
@@ -17,6 +31,9 @@ pub struct Settings {
     pub recent_files_limit: usize,
     /// Show the debug overlay in the GUI. Default false.
     pub show_debug_overlay: bool,
+    /// Dark / light / follow OS. Missing key in old JSON → [`ThemePreference::Dark`].
+    #[serde(default)]
+    pub theme: ThemePreference,
 }
 
 impl Default for Settings {
@@ -26,6 +43,7 @@ impl Default for Settings {
             max_archive_size: 1024 * 1024 * 1024,
             recent_files_limit: 10,
             show_debug_overlay: false,
+            theme: ThemePreference::Dark,
         }
     }
 }
@@ -73,6 +91,7 @@ mod tests {
         assert_eq!(s.max_archive_size, 1024 * 1024 * 1024);
         assert_eq!(s.recent_files_limit, 10);
         assert!(!s.show_debug_overlay);
+        assert_eq!(s.theme, ThemePreference::Dark);
     }
 
     #[test]
@@ -103,6 +122,7 @@ mod tests {
         s.max_archive_size = 512 * 1024 * 1024;
         s.recent_files_limit = 5;
         s.show_debug_overlay = true;
+        s.theme = ThemePreference::Light;
 
         let json = serde_json::to_string_pretty(&s).expect("serialize");
         let path = dir.path().join("settings.json");
@@ -124,5 +144,17 @@ mod tests {
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
         assert_eq!(loaded, Settings::default());
+    }
+
+    #[test]
+    fn missing_theme_field_defaults_to_dark() {
+        let json = r#"{
+            "language": null,
+            "max_archive_size": 1,
+            "recent_files_limit": 10,
+            "show_debug_overlay": false
+        }"#;
+        let loaded: Settings = serde_json::from_str(json).expect("parse legacy settings");
+        assert_eq!(loaded.theme, ThemePreference::Dark);
     }
 }

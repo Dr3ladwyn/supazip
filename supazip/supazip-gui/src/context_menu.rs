@@ -10,6 +10,8 @@
 use std::fmt;
 use std::path::PathBuf;
 
+use eframe::egui;
+
 use crate::OpenEntry;
 
 /// One concrete action the user picked from a row's context menu.

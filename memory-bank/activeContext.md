@@ -2,6 +2,9 @@
 
 ## Current state
 
+- **Design system v2 runtime (2026-08-17):** `supazip-gui` maps
+  `design/tokens.json` through `theme::Style::from_tokens`. Settings
+  persist Dark / Light / System. Font embedding waits on the OFL TTF.
 - **v1.0.0** tagged at `aff00b6` (2026-06-07). All 6 milestones complete.
 - **1.0.1 Harden** is in progress on `master` (crate versions `1.0.1`, not tagged).
 - GitHub identity placeholder is **`your-org/supazip`** everywhere until a real

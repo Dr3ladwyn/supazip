@@ -77,6 +77,14 @@ file            = "Файл"
 recent          = "Недавние"
 settings        = "Настройки"
 
+[settings]
+theme           = "Тема"
+
+[theme]
+dark            = "Тёмная"
+light           = "Светлая"
+system          = "Системная"
+
 [gui.toolbar]
 open            = "Открыть…"
 extract         = "Извлечь"

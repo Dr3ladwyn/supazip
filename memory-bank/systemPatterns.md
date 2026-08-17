@@ -15,6 +15,12 @@
   takes `&dyn ProgressCallback` and the engine ships three implementations
   (`NoOpProgress`, `ProgressState`, `ChannelProgress`) so callers can pick
   the model that matches their UI.
+- **Design tokens at GUI runtime.** `supazip-gui` embeds
+  `design/tokens.json` via `include_str!` and maps `themes.dark` /
+  `themes.light` to `egui::Style` through `theme::Style::from_tokens`.
+  Settings persist `theme: Dark | Light | System`. `supazip-core` stays
+  free of egui. Toolbar/status use elevation `level_1`; dialogs use
+  `level_2`.
 
 ## Design patterns
 
@@ -37,5 +43,9 @@
   them explicitly; the OS does the right thing on Windows and Unix.
 - `tracing::info!` / `tracing::debug!` at the start and end of every
   trait method, with the operation name and entry count.
+- CLI `list` text layout is loaded from `design/cli-table.json` (mirror of
+  `design/cli-table.tera`). Optional ANSI color uses `themes.dark` from
+  `design/tokens.json` only when stdout is a TTY (`anstyle` +
+  `anstyle-query`). `--output json|yaml` stays uncoloured.
 - Cancellation is polled once per buffer fill (8 KiB) inside loops, not
   on every entry, to keep overhead negligible.

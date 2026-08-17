@@ -84,6 +84,14 @@ file            = "Datei"
 recent          = "Zuletzt verwendet"
 settings        = "Einstellungen"
 
+[settings]
+theme           = "Thema"
+
+[theme]
+dark            = "Dunkel"
+light           = "Hell"
+system          = "System"
+
 [gui.toolbar]
 open            = "Öffnen…"
 extract         = "Entpacken"

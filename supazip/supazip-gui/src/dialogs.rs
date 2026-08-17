@@ -78,6 +78,7 @@ pub fn show_password_dialog(
         .collapsible(false)
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .frame(crate::theme::dialog_frame(ctx))
         .show(ctx, |ui| {
             if let Some(target) = &state.target {
                 ui.label(format!("Archive: {}", target.path().display()));
@@ -93,7 +94,7 @@ pub fn show_password_dialog(
             }
             ui.checkbox(&mut state.show_password, "Show password");
             if let Some(err) = &state.error {
-                ui.colored_label(egui::Color32::RED, err);
+                ui.colored_label(ui.visuals().error_fg_color, err);
             }
             ui.horizontal(|ui| {
                 let enter_pressed =

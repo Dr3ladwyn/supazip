@@ -42,8 +42,10 @@ pub use context_menu::{EntryAction, EntryContextAction};
 pub mod menubar;
 pub use menubar::{MenuAction, MenuActionOutcome};
 
+pub mod icons;
 pub mod settings;
 pub mod settings_window;
+pub mod theme;
 
 /// One opened archive: where it lives, which backend parsed it, and the
 /// entries the GUI is currently showing.
@@ -347,10 +349,11 @@ impl AppController {
                 // the entered password.
                 if let Some(oa) = &self.state.open_archive {
                     if oa.entries.iter().any(|e| e.encrypted) {
-                        self.request_password(PasswordTarget::Extract(oa.path.clone()));
+                        let path = oa.path.clone();
+                        self.request_password(PasswordTarget::Extract(path.clone()));
                         self.state.status = format!(
                             "encrypted archive — password required for {}",
-                            oa.path.display()
+                            path.display()
                         );
                         return;
                     }

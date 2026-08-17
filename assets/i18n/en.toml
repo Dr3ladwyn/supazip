@@ -77,6 +77,14 @@ file            = "File"
 recent          = "Recent"
 settings        = "Settings"
 
+[settings]
+theme           = "Theme"
+
+[theme]
+dark            = "Dark"
+light           = "Light"
+system          = "System"
+
 [gui.toolbar]
 open            = "Open…"
 extract         = "Extract"
