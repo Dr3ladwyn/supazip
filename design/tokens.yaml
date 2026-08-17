@@ -1,31 +1,65 @@
+# SupaZip design tokens 2.0
+#
+# Dual theme: themes.dark / themes.light each own a `color` tree
+# (bg / fg / accent / semantic / border). Typography, spacing, radius,
+# motion, elevation, and z_index are shared. Contrast comments are
+# WCAG 2.1 AA against that theme's color.bg.base. Elevation strings
+# interpolate `{color.border.subtle}` from the active theme.
 meta:
   name: supazip-design-tokens
-  version: 1.0.0
+  version: 2.0.0
   generated_by: hand-written
-color:
-  bg:
-    base:        "#0E1116"   # panel background
-    surface:     "#161B22"   # toolbar/statusbar
-    sunken:      "#0A0D11"   # entry grid even rows
-    raised:      "#1C2128"   # entry grid odd rows (striped)
-  fg:
-    primary:     "#E6EDF3"   # main text — 14.5:1 on bg.base
-    secondary:   "#9DA7B3"   # captions, column headers — 6.2:1
-    muted:       "#6E7681"   # disabled — 4.6:1
-    inverse:     "#0E1116"   # on accent backgrounds
-  accent:
-    primary:     "#58A6FF"   # focus, primary action — 6.8:1 on bg.base
-    primary_hover: "#79B8FF"
-    pressed:     "#388BFD"
-  semantic:
-    success:     "#3FB950"   # 5.4:1
-    warning:     "#D29922"   # 5.0:1
-    danger:      "#F85149"   # 5.1:1
-    info:        "#58A6FF"
-  border:
-    subtle:      "#21262D"
-    strong:      "#30363D"
-    focus:       "#58A6FF"   # same as accent.primary
+themes:
+  dark:
+    color:
+      bg:
+        base:        "#0E1116"   # panel background
+        surface:     "#161B22"   # toolbar/statusbar
+        sunken:      "#0A0D11"   # entry grid even rows
+        raised:      "#1C2128"   # entry grid odd rows (striped)
+      fg:
+        primary:     "#E6EDF3"   # main text — 14.5:1 on bg.base
+        secondary:   "#9DA7B3"   # captions, column headers — 6.2:1
+        muted:       "#6E7681"   # disabled — 4.6:1
+        inverse:     "#0E1116"   # on accent backgrounds
+      accent:
+        primary:     "#58A6FF"   # focus, primary action — 6.8:1 on bg.base
+        primary_hover: "#79B8FF"
+        pressed:     "#388BFD"
+      semantic:
+        success:     "#3FB950"   # 5.4:1
+        warning:     "#D29922"   # 5.0:1
+        danger:      "#F85149"   # 5.1:1
+        info:        "#58A6FF"
+      border:
+        subtle:      "#21262D"
+        strong:      "#30363D"
+        focus:       "#58A6FF"   # same as accent.primary
+  light:
+    color:
+      bg:
+        base:        "#F6F8FA"   # panel background
+        surface:     "#FFFFFF"   # toolbar/statusbar
+        sunken:      "#EAEFF2"   # entry grid even rows
+        raised:      "#FFFFFF"   # entry grid odd rows (striped)
+      fg:
+        primary:     "#1F2328"   # main text — 14.8:1 on bg.base
+        secondary:   "#59636E"   # captions, column headers — 5.7:1
+        muted:       "#636C76"   # disabled — 5.0:1
+        inverse:     "#FFFFFF"   # on accent backgrounds
+      accent:
+        primary:     "#0969DA"   # focus, primary action — 4.9:1 on bg.base
+        primary_hover: "#0550AE" # 7.1:1
+        pressed:     "#033D8B"   # 9.6:1
+      semantic:
+        success:     "#166C2E"   # 6.1:1
+        warning:     "#8A5C00"   # 5.5:1
+        danger:      "#CF222E"   # 5.0:1
+        info:        "#0969DA"   # 4.9:1
+      border:
+        subtle:      "#D0D7DE"
+        strong:      "#8C959F"
+        focus:       "#0969DA"   # same as accent.primary
 typography:
   family:
     body:    "JetBrains Mono"

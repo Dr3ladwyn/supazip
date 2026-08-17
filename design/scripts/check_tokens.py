@@ -4,10 +4,14 @@
 Verifies:
   1. Top-level keys match exactly between YAML and JSON.
   2. For each nested dict, the set of subkeys matches exactly.
-  3. All values under `color.*` match `^#?[0-9A-Fa-f]{6}$`.
+  3. All values under `themes.*.color.*` (and legacy `color.*`) match
+     `^#?[0-9A-Fa-f]{6}$`, and YAML/JSON leaf values are identical.
   4. `meta.version` is identical in both files.
   5. No value is `None` (no missing values in YAML that should have been
      mirrored to JSON).
+  6. Both files have `themes.dark` and `themes.light`, each with the
+     required color groups (bg / fg / accent / semantic / border) and
+     keys.
 
 Stdlib only. Uses a hand-rolled YAML reader sufficient for the subset of
 YAML used by tokens.yaml (nested mappings with `key: value` lines, scalar
@@ -31,6 +35,15 @@ YAML_PATH = REPO_ROOT / "design" / "tokens.yaml"
 JSON_PATH = REPO_ROOT / "design" / "tokens.json"
 
 COLOR_HEX_RE = re.compile(r"^#?[0-9A-Fa-f]{6}$")
+
+REQUIRED_THEMES = ("dark", "light")
+REQUIRED_COLOR_GROUPS: dict[str, tuple[str, ...]] = {
+    "bg": ("base", "surface", "sunken", "raised"),
+    "fg": ("primary", "secondary", "muted", "inverse"),
+    "accent": ("primary", "primary_hover", "pressed"),
+    "semantic": ("success", "warning", "danger", "info"),
+    "border": ("subtle", "strong", "focus"),
+}
 
 
 class YamlParseError(Exception):
@@ -186,7 +199,7 @@ def _check_node(
             )
             return
 
-    if path == "color" or path.startswith("color."):
+    if _is_color_path(path):
         if isinstance(y_val, str) and not COLOR_HEX_RE.match(y_val):
             failures.append(
                 f"FAIL: {path}: YAML color '{y_val}' does not match "
@@ -197,7 +210,6 @@ def _check_node(
                 f"FAIL: {path}: JSON color '{j_val}' does not match "
                 f"^#?[0-9A-Fa-f]{{6}}$"
             )
-        return
 
     if y_val != j_val:
         failures.append(
@@ -232,6 +244,84 @@ def _check_structure(
         _check_node(key, yaml[key], json_data[key], failures)
 
 
+def _is_color_path(path: str) -> bool:
+    """True for paths under a theme color tree (or legacy top-level color).
+
+    Matches `themes.<name>.color` and `themes.<name>.color.*`, plus
+    leftover `color` / `color.*` so a reverted v1 file still gets hex
+    validation.
+    """
+    parts = path.split(".")
+    if parts[0] == "color":
+        return True
+    return len(parts) >= 3 and parts[0] == "themes" and parts[2] == "color"
+
+
+def _check_required_keys(
+    node: Any,
+    path: str,
+    required: tuple[str, ...] | set[str],
+    label: str,
+    failures: list[str],
+) -> dict[str, Any] | None:
+    """Require `node` to be a mapping whose keys equal `required`."""
+    if not isinstance(node, dict):
+        failures.append(f"FAIL: {path}: missing or not a mapping in {label}")
+        return None
+    have = set(node.keys())
+    need = set(required)
+    missing = need - have
+    extra = have - need
+    if missing:
+        failures.append(
+            f"FAIL: {path}: missing keys in {label}: {sorted(missing)}"
+        )
+    if extra:
+        failures.append(
+            f"FAIL: {path}: unexpected keys in {label}: {sorted(extra)}"
+        )
+    return node
+
+
+def _check_theme_schema(data: Any, label: str, failures: list[str]) -> None:
+    """Require themes.dark / themes.light with the v2 color contract."""
+    if not isinstance(data, dict):
+        failures.append(f"FAIL: root: not a mapping in {label}")
+        return
+    themes = data.get("themes")
+    if not isinstance(themes, dict):
+        failures.append(f"FAIL: themes: missing or not a mapping in {label}")
+        return
+    for name in REQUIRED_THEMES:
+        if name not in themes:
+            failures.append(f"FAIL: themes.{name}: missing in {label}")
+            continue
+        theme = themes[name]
+        if not isinstance(theme, dict):
+            failures.append(
+                f"FAIL: themes.{name}: must be a mapping in {label}"
+            )
+            continue
+        color = theme.get("color")
+        color_node = _check_required_keys(
+            color,
+            f"themes.{name}.color",
+            tuple(REQUIRED_COLOR_GROUPS),
+            label,
+            failures,
+        )
+        if color_node is None:
+            continue
+        for group, keys in REQUIRED_COLOR_GROUPS.items():
+            _check_required_keys(
+                color_node.get(group),
+                f"themes.{name}.color.{group}",
+                keys,
+                label,
+                failures,
+            )
+
+
 def _check_meta_version(
     yaml: Any,
     json_data: Any,
@@ -258,7 +348,7 @@ def main(argv: list[str] | None = None) -> int:
         prog="check_tokens",
         description=(
             "Verify that design/tokens.yaml and design/tokens.json are in "
-            "sync (keys, types, colors, meta.version)."
+            "sync (keys, types, theme colors, meta.version)."
         ),
     )
     args = parser.parse_args(argv)
@@ -290,6 +380,8 @@ def main(argv: list[str] | None = None) -> int:
     failures: list[str] = []
     _check_structure(yaml_data, json_data, failures)
     _check_meta_version(yaml_data, json_data, failures)
+    _check_theme_schema(yaml_data, "YAML", failures)
+    _check_theme_schema(json_data, "JSON", failures)
 
     if failures:
         for line in failures:
