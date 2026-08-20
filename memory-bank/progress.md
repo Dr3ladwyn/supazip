@@ -49,3 +49,11 @@ All roadmap milestones completed. 6 tags (v0.2.0 through v1.0.0).
 - [ ] **1.1 leftover:** DESIGN.md v2 + light-theme a11y re-audit.
 - [x] CLI `list` text table driven by `design/cli-table.json` (tera contract
       mirror); optional TTY colors from `themes.dark` tokens.
+- [x] [2026-08-20 16:07:09] **Design-v2 review remediation:** encrypted
+      extraction retries preserve archive, destination, and selected entries;
+      every production worker, including list/open, shares one cancellable
+      progress handle with a genuine GUI modal; a visible password prompt also
+      reserves the slot, so menus, shortcuts, DnD, and context actions cannot
+      race a retry. Toolbar AccessKit metadata, recent-popup dismissal, and
+      borrowed archive rendering are fixed. Regression suite: 208 passed,
+      1 ignored.

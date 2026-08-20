@@ -21,12 +21,35 @@ use std::sync::Arc;
 use supazip_core::traits::ProgressState as CoreProgressState;
 use supazip_core::{formats, ArchiveEntry, Limits};
 
+#[cfg(not(test))]
+fn load_recent_files() -> Vec<RecentEntry> {
+    recent::load()
+}
+
+#[cfg(test)]
+fn load_recent_files() -> Vec<RecentEntry> {
+    Vec::new()
+}
+
+#[cfg(not(test))]
+fn save_recent_files(entries: &[RecentEntry]) -> std::io::Result<()> {
+    recent::save(entries)
+}
+
+// Controller unit tests exercise state transitions; recent.rs owns the disk
+// persistence tests. Avoid sharing the user's real recent-files path across
+// parallel tests.
+#[cfg(test)]
+fn save_recent_files(_entries: &[RecentEntry]) -> std::io::Result<()> {
+    Ok(())
+}
+
 pub mod progress;
 
-pub use progress::{show_progress_modal, GuiProgress, ProgressState};
+pub use progress::{show_progress_modal, ProgressState};
 
 pub mod dialogs;
-pub use dialogs::{PasswordDialogState, PasswordTarget};
+pub use dialogs::{ExtractRequest, PasswordDialogState, PasswordSubmission, PasswordTarget};
 
 pub mod dnd;
 
@@ -106,7 +129,7 @@ impl Default for AppState {
             open_archive: None,
             status: "Open an archive to get started.".to_string(),
             busy: false,
-            recent: recent::load(),
+            recent: load_recent_files(),
             show_debug: false,
             show_about: false,
             settings: settings::Settings::load(),
@@ -140,34 +163,9 @@ pub enum EngineEvent {
     /// re-enables the toolbar.
     Error(String),
     /// The engine needs a password to continue. The controller opens the
-    /// password dialog; the GUI then re-dispatches the matching operation
-    /// (see [`PasswordOpKind`]).
-    PasswordRequired { path: PathBuf, kind: PasswordOpKind },
-}
-
-/// Distinguishes the operation that hit a password prompt. The GUI uses
-/// this to know which worker to re-spawn after the user submits a value.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PasswordOpKind {
-    /// `Open` / list on a header-encrypted archive.
-    Open,
-    /// Extract from an encrypted archive.
-    Extract,
-    /// Create a new encrypted archive.
-    Create,
-    /// Test (integrity check) on an encrypted archive.
-    Test,
-}
-
-impl PasswordOpKind {
-    /// Map the kind to the matching [`PasswordTarget`] variant.
-    pub fn into_target(self, path: PathBuf) -> PasswordTarget {
-        match self {
-            PasswordOpKind::Open | PasswordOpKind::Test => PasswordTarget::Open(path),
-            PasswordOpKind::Extract => PasswordTarget::Extract(path),
-            PasswordOpKind::Create => PasswordTarget::Create(path),
-        }
-    }
+    /// password dialog; `target` contains everything needed to replay the
+    /// exact operation after the user submits a value.
+    PasswordRequired { target: PasswordTarget },
 }
 
 /// Headless controller: state + channel. The eframe `App` in `main.rs`
@@ -176,13 +174,9 @@ pub struct AppController {
     state: AppState,
     engine_tx: Sender<EngineEvent>,
     engine_rx: Receiver<EngineEvent>,
-    cancel_flag: Arc<CoreProgressState>,
-    /// WS-C: in-flight progress surfaced as the modal progress dialog.
-    /// `Some` while a long-running operation is in flight; `None` when
-    /// the controller is idle. The same `Arc` is handed to the worker
-    /// through [`Self::start_progress`] so the worker can push per-entry
-    /// updates through the [`crate::GuiProgress`] adapter.
-    progress: Option<Arc<ProgressState>>,
+    /// In-flight progress and cancellation handle. The exact same `Arc` is
+    /// passed to the core backend and rendered by the modal.
+    progress: Option<Arc<CoreProgressState>>,
     limits: Limits,
     /// WS-E: modal password dialog state. Hidden by default; the GUI
     /// opens it when an `EngineEvent::PasswordRequired` arrives.
@@ -196,7 +190,6 @@ impl Default for AppController {
             state: AppState::default(),
             engine_tx,
             engine_rx,
-            cancel_flag: Arc::new(CoreProgressState::new()),
             progress: None,
             limits: Limits::default(),
             password_dialog: PasswordDialogState::default(),
@@ -279,14 +272,13 @@ impl AppController {
                 });
                 self.state.busy = false;
                 self.state.status = "loaded".to_string();
-                self.cancel_flag = Arc::new(CoreProgressState::new());
                 self.finish_progress();
                 // WS-D: successful open → push to recent files (cap 10,
                 // dedup, JSON-persisted). Best-effort: an I/O error on
                 // `save` is logged and swallowed so the open still
                 // succeeds from the user's point of view.
                 recent::push(&mut self.state.recent, RecentEntry::now(path));
-                if let Err(e) = recent::save(&self.state.recent) {
+                if let Err(e) = save_recent_files(&self.state.recent) {
                     log::warn!("failed to persist recent files: {e}");
                 }
             }
@@ -300,31 +292,28 @@ impl AppController {
                 // intent in the status line so tests can assert on state
                 // without a window.
                 self.state.busy = true;
-                self.state.status = format!(
-                    "extracting {} entr{} to {}…",
-                    entries.len(),
-                    if entries.len() == 1 { "y" } else { "ies" },
-                    dest.display()
-                );
+                let subject = match entries.as_slice() {
+                    [] => "all entries".to_owned(),
+                    [entry] => format!("entry {entry}"),
+                    many => format!("{} entries", many.len()),
+                };
+                self.state.status = format!("extracting {subject} to {}…", dest.display());
             }
             EngineEvent::Done(msg) => {
                 self.state.busy = false;
                 self.state.status = msg;
-                self.cancel_flag = Arc::new(CoreProgressState::new());
                 self.finish_progress();
             }
             EngineEvent::Error(msg) => {
                 self.state.busy = false;
                 self.state.status = format!("error: {msg}");
-                self.cancel_flag = Arc::new(CoreProgressState::new());
                 self.finish_progress();
             }
-            EngineEvent::PasswordRequired { path, kind } => {
+            EngineEvent::PasswordRequired { target } => {
                 self.state.busy = false;
                 self.state.status = "password required".to_string();
-                self.cancel_flag = Arc::new(CoreProgressState::new());
                 self.finish_progress();
-                self.password_dialog.open(kind.into_target(path));
+                self.password_dialog.open(target);
             }
         }
     }
@@ -333,6 +322,9 @@ impl AppController {
     /// the worker thread (if any) is the caller's responsibility. Each
     /// branch mirrors what `main.rs` does for the toolbar buttons.
     pub fn dispatch_entry_action(&mut self, action: EntryContextAction) {
+        if !self.can_start_operation() {
+            return;
+        }
         match action.kind {
             EntryAction::ExtractHere(dest) => {
                 self.apply(EngineEvent::Extract {
@@ -349,12 +341,16 @@ impl AppController {
                 // the entered password.
                 if let Some(oa) = &self.state.open_archive {
                     if oa.entries.iter().any(|e| e.encrypted) {
-                        let path = oa.path.clone();
-                        self.request_password(PasswordTarget::Extract(path.clone()));
+                        let request = ExtractRequest {
+                            archive: oa.path.clone(),
+                            destination: dest,
+                            entries: vec![action.entry_name],
+                        };
                         self.state.status = format!(
                             "encrypted archive — password required for {}",
-                            path.display()
+                            request.archive.display()
                         );
+                        self.request_password(PasswordTarget::Extract(request));
                         return;
                     }
                 }
@@ -394,6 +390,18 @@ impl AppController {
     /// The split mirrors `dispatch_entry_action`: the controller records
     /// the intent and the GUI performs the side effects.
     pub fn dispatch_menu_action(&mut self, action: MenuAction) -> MenuActionOutcome {
+        if !self.can_start_operation()
+            && matches!(
+                action,
+                MenuAction::Open
+                    | MenuAction::Close
+                    | MenuAction::Extract
+                    | MenuAction::Create
+                    | MenuAction::Test
+            )
+        {
+            return MenuActionOutcome::Noop;
+        }
         match action {
             MenuAction::ToggleDebug => {
                 self.state.show_debug = !self.state.show_debug;
@@ -428,11 +436,13 @@ impl AppController {
     /// the status line. Returns `true` if there was an open archive to
     /// close, `false` if the menu fired on an empty window.
     pub fn close_archive(&mut self) -> bool {
+        if !self.can_start_operation() {
+            return false;
+        }
         if self.state.open_archive.is_some() {
             self.state.open_archive = None;
             self.state.busy = false;
             self.state.status = "closed".to_string();
-            self.cancel_flag = Arc::new(CoreProgressState::new());
             self.finish_progress();
             true
         } else {
@@ -441,28 +451,32 @@ impl AppController {
         }
     }
 
-    /// Mark the controller as busy with the given status line. The GUI
-    /// calls this immediately before spawning a worker; tests can call it
-    /// to set up the precondition for a `Done`/`Error` event.
-    pub fn mark_busy(&mut self, status: impl Into<String>) {
+    /// Try to reserve the single worker slot and set its status line.
+    /// Returns `false` without changing state when another operation is
+    /// already active.
+    pub fn mark_busy(&mut self, status: impl Into<String>) -> bool {
+        if !self.can_start_operation() {
+            return false;
+        }
         self.state.busy = true;
         self.state.status = status.into();
+        true
     }
 
     /// Begin opening `path` for listing. The controller enters the busy
     /// state with a status line; the caller (the eframe `App`) is expected
     /// to spawn a worker that calls [`Self::list_archive_blocking`] and
     /// feeds the result back through [`Self::apply`]. Returns `true` when
-    /// the request was accepted (i.e. the path is non-empty).
+    /// the request was accepted (the path is non-empty and no operation is
+    /// already active).
     ///
     /// This is the entry point used by drag-and-drop and any future
     /// "open this file" path that does not go through [`rfd::FileDialog`].
     pub fn open_archive(&mut self, path: PathBuf) -> bool {
-        if path.as_os_str().is_empty() {
+        if path.as_os_str().is_empty() || !self.can_start_operation() {
             return false;
         }
-        self.mark_busy(format!("opening {}…", path.display()));
-        true
+        self.mark_busy(format!("opening {}…", path.display()))
     }
 
     /// Borrow the current status line. Used by the DnD handler and the
@@ -471,35 +485,49 @@ impl AppController {
         self.state.status = status.into();
     }
 
-    /// Cancel any in-flight engine operation. The cancellation flag is
-    /// shared with the worker thread via the `Arc<CoreProgressState>`
-    /// returned by `cancel_handle`.
+    /// Cancel the current backend operation, if any.
     pub fn cancel(&self) {
-        self.cancel_flag.cancel();
+        if let Some(progress) = &self.progress {
+            progress.cancel();
+        }
     }
 
-    /// Borrow the shared cancellation handle for handing to a worker.
-    pub fn cancel_handle(&self) -> Arc<CoreProgressState> {
-        self.cancel_flag.clone()
+    /// Whether a new worker operation may be started. A visible password
+    /// prompt owns the same single-flight slot as a running worker: the prompt
+    /// is a suspended operation that may be retried, not an idle window.
+    pub fn can_start_operation(&self) -> bool {
+        !self.state.busy && !self.password_dialog.visible && self.progress.is_none()
     }
 
-    /// WS-C: enter the "in-flight" progress state. Allocates a fresh
-    /// [`ProgressState`] (the GUI re-export, distinct from the
-    /// core's `CoreProgressState`), installs it on the controller, and
-    /// returns a clone for the worker to write to. The next call to
-    /// [`Self::finish_progress`] (or any terminal `apply` event) drops
-    /// the reference and the modal dialog disappears.
-    ///
-    /// The cancel flag is left pointing at the core `CoreProgressState`,
-    /// which is what the engine accepts as a `&dyn ProgressCallback`.
-    /// The GUI's [`ProgressState`] is what the modal dialog reads. The
-    /// two share no state directly — the modal is driven by
-    /// `set_progress` / `set_message` callbacks from the engine, while
-    /// the cancel flag is set directly by the GUI's Cancel button.
-    pub fn start_progress(&mut self) -> Arc<ProgressState> {
-        let state = Arc::new(ProgressState::new());
+    fn install_progress(&mut self) -> Arc<CoreProgressState> {
+        let state = Arc::new(CoreProgressState::new());
         self.progress = Some(state.clone());
         state
+    }
+
+    /// Atomically reserve the single worker slot and install the progress /
+    /// cancellation handle shared by the modal and backend worker.
+    pub fn begin_progress_operation(
+        &mut self,
+        status: impl Into<String>,
+    ) -> Option<Arc<CoreProgressState>> {
+        if !self.can_start_operation() {
+            return None;
+        }
+        self.state.busy = true;
+        self.state.status = status.into();
+        Some(self.install_progress())
+    }
+
+    /// Attach progress to an operation whose worker slot was already reserved
+    /// by a controller action (drag-and-drop open or an entry action). This is
+    /// deliberately stricter than `begin_progress_operation`: it cannot attach
+    /// to a password prompt or replace an existing handle.
+    pub fn attach_progress_to_reserved_operation(&mut self) -> Option<Arc<CoreProgressState>> {
+        if !self.state.busy || self.password_dialog.visible || self.progress.is_some() {
+            return None;
+        }
+        Some(self.install_progress())
     }
 
     /// WS-C: drop the in-flight progress state. Idempotent — calling it
@@ -510,7 +538,7 @@ impl AppController {
 
     /// WS-C: borrow the in-flight progress state, if any. The GUI calls
     /// this once per frame to decide whether to render the modal.
-    pub fn progress(&self) -> Option<&Arc<ProgressState>> {
+    pub fn progress(&self) -> Option<&Arc<CoreProgressState>> {
         self.progress.as_ref()
     }
 
@@ -525,7 +553,7 @@ impl AppController {
     /// cleared regardless.
     pub fn clear_recent(&mut self) -> std::io::Result<()> {
         recent::clear(&mut self.state.recent);
-        recent::save(&self.state.recent)
+        save_recent_files(&self.state.recent)
     }
 
     /// Drop any recent entries whose file is missing on disk, then
@@ -535,7 +563,7 @@ impl AppController {
     pub fn prune_recent_missing(&mut self) -> usize {
         let removed = recent::prune_missing(&mut self.state.recent);
         if removed > 0 {
-            if let Err(e) = recent::save(&self.state.recent) {
+            if let Err(e) = save_recent_files(&self.state.recent) {
                 log::warn!("failed to persist recent files after prune: {e}");
             }
         }
@@ -575,6 +603,7 @@ impl AppController {
 mod tests {
     use super::*;
     use std::io::Write;
+    use std::sync::atomic::Ordering;
     use tempfile::tempdir;
     use zip::write::SimpleFileOptions;
     use zip::CompressionMethod;
@@ -670,26 +699,33 @@ mod tests {
 
     #[test]
     fn cancel_marks_handle_cancelled() {
-        let ctrl = AppController::default();
-        let handle = ctrl.cancel_handle();
+        let mut ctrl = AppController::default();
+        let handle = ctrl
+            .begin_progress_operation("opening…")
+            .expect("first progress handle");
         assert!(!handle.is_cancelled());
         ctrl.cancel();
         assert!(handle.is_cancelled());
     }
 
     #[test]
-    fn listed_event_resets_cancel_flag() {
-        // After a cancel, a fresh `Listed` should clear the flag so the
-        // next operation isn't pre-cancelled.
+    fn terminal_event_clears_progress_and_next_operation_is_fresh() {
         let mut ctrl = AppController::default();
+        let cancelled = ctrl
+            .begin_progress_operation("opening…")
+            .expect("first progress handle");
         ctrl.cancel();
-        assert!(ctrl.cancel_handle().is_cancelled());
+        assert!(cancelled.is_cancelled());
         ctrl.apply(EngineEvent::Listed {
             path: PathBuf::from("/tmp/a.zip"),
             backend_name: "zip",
             entries: vec![],
         });
-        assert!(!ctrl.cancel_handle().is_cancelled());
+        assert!(ctrl.progress().is_none());
+        let fresh = ctrl
+            .begin_progress_operation("opening…")
+            .expect("fresh progress handle");
+        assert!(!fresh.is_cancelled());
     }
 
     #[test]
@@ -853,8 +889,7 @@ mod tests {
         let mut ctrl = AppController::default();
         ctrl.mark_busy("opening…");
         ctrl.apply(EngineEvent::PasswordRequired {
-            path: PathBuf::from("/tmp/secret.7z"),
-            kind: PasswordOpKind::Open,
+            target: PasswordTarget::Open(PathBuf::from("/tmp/secret.7z")),
         });
         let d = ctrl.password_dialog_ref();
         assert!(d.visible, "PasswordRequired should open the dialog");
@@ -864,9 +899,42 @@ mod tests {
     }
 
     #[test]
+    fn password_prompt_reserves_single_flight_slot_until_it_closes() {
+        let mut ctrl = AppController::default();
+        let target = PasswordTarget::Extract(ExtractRequest {
+            archive: "/tmp/locked.7z".into(),
+            destination: "/tmp/chosen-output".into(),
+            entries: vec!["secret.txt".into()],
+        });
+        ctrl.apply(EngineEvent::PasswordRequired {
+            target: target.clone(),
+        });
+
+        assert!(!ctrl.can_start_operation());
+        assert!(!ctrl.open_archive("/tmp/other.zip".into()));
+        assert!(!ctrl.mark_busy("listing another archive…"));
+        assert!(ctrl
+            .begin_progress_operation("extracting concurrently…")
+            .is_none());
+        assert!(ctrl.attach_progress_to_reserved_operation().is_none());
+        assert_eq!(
+            ctrl.dispatch_menu_action(MenuAction::Open),
+            MenuActionOutcome::Noop
+        );
+        assert_eq!(ctrl.password_dialog_ref().target.as_ref(), Some(&target));
+
+        ctrl.password_dialog().close();
+        assert!(ctrl.can_start_operation());
+    }
+
+    #[test]
     fn request_password_opens_dialog_for_target() {
         let mut ctrl = AppController::default();
-        ctrl.request_password(PasswordTarget::Extract(PathBuf::from("/a.zip")));
+        ctrl.request_password(PasswordTarget::Extract(ExtractRequest {
+            archive: "/a.zip".into(),
+            destination: "/out".into(),
+            entries: vec!["a.txt".into()],
+        }));
         assert!(ctrl.password_dialog_ref().visible);
         assert!(matches!(
             ctrl.password_dialog_ref().target,
@@ -897,6 +965,13 @@ mod tests {
             "ExtractTo must open dialog on encrypted archive"
         );
         assert!(!ctrl.state().busy, "no extract worker should be queued yet");
+        let Some(PasswordTarget::Extract(request)) = ctrl.password_dialog_ref().target.as_ref()
+        else {
+            panic!("expected a retained extraction request");
+        };
+        assert_eq!(request.archive, PathBuf::from("/tmp/locked.7z"));
+        assert_eq!(request.destination, PathBuf::from("/tmp/out"));
+        assert_eq!(request.entries, ["secret.txt"]);
     }
 
     #[test]
@@ -920,26 +995,9 @@ mod tests {
     }
 
     #[test]
-    fn password_op_kind_into_target_maps_each_variant() {
+    fn password_targets_keep_test_distinct_from_open() {
         let p = PathBuf::from("/x.7z");
-        assert!(matches!(
-            PasswordOpKind::Open.into_target(p.clone()),
-            PasswordTarget::Open(_)
-        ));
-        assert!(matches!(
-            PasswordOpKind::Extract.into_target(p.clone()),
-            PasswordTarget::Extract(_)
-        ));
-        assert!(matches!(
-            PasswordOpKind::Create.into_target(p.clone()),
-            PasswordTarget::Create(_)
-        ));
-        // Test and Open both surface as Open for the dialog (test reuses
-        // the open listing code path).
-        assert!(matches!(
-            PasswordOpKind::Test.into_target(p),
-            PasswordTarget::Open(_)
-        ));
+        assert_ne!(PasswordTarget::Open(p.clone()), PasswordTarget::Test(p));
     }
 
     // -----------------------------------------------------------------------
@@ -947,18 +1005,37 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn start_progress_installs_state() {
+    fn begin_progress_operation_installs_busy_state_and_handle() {
         let mut ctrl = AppController::default();
         assert!(ctrl.progress().is_none());
-        let handle = ctrl.start_progress();
+        let handle = ctrl
+            .begin_progress_operation("opening archive…")
+            .expect("first progress handle");
+        assert!(ctrl.state().busy);
+        assert_eq!(ctrl.state().status, "opening archive…");
         assert!(ctrl.progress().is_some(), "progress should be set");
         assert!(Arc::ptr_eq(ctrl.progress().unwrap(), &handle));
     }
 
     #[test]
+    fn reserved_operation_can_attach_exactly_one_progress_handle() {
+        let mut ctrl = AppController::default();
+        assert!(ctrl.attach_progress_to_reserved_operation().is_none());
+        assert!(ctrl.mark_busy("opening dropped archive…"));
+
+        let handle = ctrl
+            .attach_progress_to_reserved_operation()
+            .expect("reserved worker should receive progress");
+        assert!(Arc::ptr_eq(ctrl.progress().unwrap(), &handle));
+        assert!(ctrl.attach_progress_to_reserved_operation().is_none());
+    }
+
+    #[test]
     fn finish_progress_drops_state() {
         let mut ctrl = AppController::default();
-        let _h = ctrl.start_progress();
+        let _h = ctrl
+            .begin_progress_operation("opening…")
+            .expect("first progress handle");
         assert!(ctrl.progress().is_some());
         ctrl.finish_progress();
         assert!(ctrl.progress().is_none());
@@ -967,7 +1044,9 @@ mod tests {
     #[test]
     fn apply_done_clears_progress_state() {
         let mut ctrl = AppController::default();
-        let _h = ctrl.start_progress();
+        let _h = ctrl
+            .begin_progress_operation("opening…")
+            .expect("first progress handle");
         assert!(ctrl.progress().is_some());
         ctrl.apply(EngineEvent::Done("ok".into()));
         assert!(ctrl.progress().is_none());
@@ -976,24 +1055,51 @@ mod tests {
     #[test]
     fn apply_error_clears_progress_state() {
         let mut ctrl = AppController::default();
-        let _h = ctrl.start_progress();
+        let _h = ctrl
+            .begin_progress_operation("opening…")
+            .expect("first progress handle");
         assert!(ctrl.progress().is_some());
         ctrl.apply(EngineEvent::Error("boom".into()));
         assert!(ctrl.progress().is_none());
     }
 
     #[test]
-    fn start_progress_does_not_clobber_cancel_handle() {
-        // The cancel flag stays on `CoreProgressState`; `start_progress`
-        // only manages the GUI's `ProgressState`. A prior cancel must
-        // remain observable to the in-flight worker, and a new
-        // `start_progress` must not reset the cancel flag (it is up to
-        // the GUI to do that explicitly, since the worker may not have
-        // observed the prior cancel yet).
+    fn second_progress_start_is_rejected_and_original_remains_cancellable() {
         let mut ctrl = AppController::default();
+        let first = ctrl
+            .begin_progress_operation("opening…")
+            .expect("first progress handle");
+        assert!(ctrl.begin_progress_operation("extracting…").is_none());
+        assert!(Arc::ptr_eq(ctrl.progress().unwrap(), &first));
+
         ctrl.cancel();
-        assert!(ctrl.cancel_handle().is_cancelled());
-        let _h = ctrl.start_progress();
-        assert!(ctrl.cancel_handle().is_cancelled());
+        assert!(first.is_cancelled());
+
+        ctrl.apply(EngineEvent::Done("cancelled".into()));
+        let fresh = ctrl
+            .begin_progress_operation("opening…")
+            .expect("next operation handle");
+        assert!(!fresh.is_cancelled());
+        assert!(!Arc::ptr_eq(&first, &fresh));
+    }
+
+    #[test]
+    fn operation_progress_state_advances_cancels_and_disappears_end_to_end() {
+        let mut ctrl = AppController::default();
+        let worker_handle = ctrl
+            .begin_progress_operation("opening…")
+            .expect("first progress handle");
+
+        worker_handle.set_progress(3, 8);
+        let modal_handle = ctrl.progress().expect("modal should be visible");
+        assert!(Arc::ptr_eq(modal_handle, &worker_handle));
+        assert_eq!(modal_handle.current.load(Ordering::Relaxed), 3);
+        assert_eq!(modal_handle.total.load(Ordering::Relaxed), 8);
+
+        ctrl.cancel();
+        assert!(worker_handle.is_cancelled());
+
+        ctrl.apply(EngineEvent::Done("cancelled".into()));
+        assert!(ctrl.progress().is_none(), "terminal event hides the modal");
     }
 }

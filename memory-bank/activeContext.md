@@ -5,14 +5,21 @@
 - **Design system v2 runtime (2026-08-17):** `supazip-gui` maps
   `design/tokens.json` through `theme::Style::from_tokens`. Settings
   persist Dark / Light / System. Font embedding waits on the OFL TTF.
+- [2026-08-20 16:07:09] All findings from the design-v2 code review and both
+  independent follow-ups are remediated in the current worktree. A visible
+  password prompt now reserves the single-flight slot, both password and
+  progress dialogs are real `egui::Modal`s, and list/open owns the same
+  cancellable progress handle as extract/create/test. Exact encrypted retry
+  intent, toolbar accessibility, tested recent-popup dismissal, and borrowed
+  archive rendering remain covered by regression tests.
 - **v1.0.0** tagged at `aff00b6` (2026-06-07). All 6 milestones complete.
 - **1.0.1 Harden** is in progress on `master` (crate versions `1.0.1`, not tagged).
 - GitHub identity placeholder is **`your-org/supazip`** everywhere until a real
   repository exists. Do not invent a handle.
 - PeaZip is a vendored nested checkout: ignored via `/PeaZip/`, not a submodule.
-- Local toolchain: rustc 1.88.0 (MSRV 1.92). Core + CLI compile with
-  `--ignore-rust-version`. GUI crate cannot build locally; CI is the
-  authoritative gate.
+- Local toolchain: rustc 1.88.0 (MSRV 1.92). The full workspace, including
+  GUI, passes `fmt`, `clippy -D warnings`, and tests locally with
+  `--ignore-rust-version`; plain Cargo commands still reject the MSRV mismatch.
 
 ## Current blockers
 

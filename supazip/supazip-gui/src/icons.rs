@@ -45,6 +45,9 @@ impl Widget for ToolbarButton {
         let height = (galley.size().y + pad.y * 2.0).max(icon_size + pad.y * 2.0);
         let size = vec2(pad.x * 2.0 + icon_size + gap + galley.size().x, height);
         let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+        response.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), galley.text())
+        });
 
         if ui.is_rect_visible(rect) {
             let visuals = ui.style().interact(&response);
@@ -127,5 +130,28 @@ fn paint_icon(painter: &egui::Painter, rect: Rect, icon: ToolbarIcon, stroke: St
             line(p(0.22, 0.22), p(0.78, 0.78));
             line(p(0.78, 0.22), p(0.22, 0.78));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn toolbar_button_exposes_button_role_and_accessible_name() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+
+        let output = ctx.run_ui(Default::default(), |ui| {
+            ui.add(ToolbarButton::new(ToolbarIcon::Open, "Open archive"));
+        });
+
+        let update = output
+            .platform_output
+            .accesskit_update
+            .expect("AccessKit update should be generated");
+        assert!(update.nodes.iter().any(|(_, node)| {
+            node.role() == egui::accesskit::Role::Button && node.label() == Some("Open archive")
+        }));
     }
 }

@@ -15,6 +15,20 @@
   takes `&dyn ProgressCallback` and the engine ships three implementations
   (`NoOpProgress`, `ProgressState`, `ChannelProgress`) so callers can pick
   the model that matches their UI.
+- [2026-08-20 16:07:09] **One in-flight GUI operation handle.** Starting a new
+  operation atomically reserves `busy` and installs the shared
+  `Arc<supazip_core::traits::ProgressState>`; DnD/context actions may attach one
+  handle only to their already-reserved slot. A visible password prompt owns
+  that slot while its worker is suspended. Menus, shortcuts, DnD, and context
+  actions reject dispatch whenever `busy`, password-modal visibility, or an
+  active progress handle says the slot is occupied. List/open wraps its reader
+  with cancellation polling. Terminal events drop the handle, and the next
+  operation receives a fresh instance.
+- [2026-08-20 15:18:46] **Password retries carry typed intent.** A password
+  prompt owns a `PasswordTarget`; extraction stores an `ExtractRequest` with
+  archive, destination, and exact entry list. Submission moves both target and
+  password out atomically before dialog state is cleared, so retry code never
+  reconstructs user choices.
 - **Design tokens at GUI runtime.** `supazip-gui` embeds
   `design/tokens.json` via `include_str!` and maps `themes.dark` /
   `themes.light` to `egui::Style` through `theme::Style::from_tokens`.
@@ -49,3 +63,6 @@
   `anstyle-query`). `--output json|yaml` stays uncoloured.
 - Cancellation is polled once per buffer fill (8 KiB) inside loops, not
   on every entry, to keep overhead negligible.
+- [2026-08-20 15:18:46] Controller unit tests do not read or write the user's
+  real recent-files JSON. Disk persistence is tested in `recent.rs`; controller
+  tests use deterministic in-memory recent state.

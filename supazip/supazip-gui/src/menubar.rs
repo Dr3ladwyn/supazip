@@ -3,8 +3,7 @@
 //! The bar is built with eframe's `with_menu` API: on macOS the menu lives
 //! in the system menu bar at the top of the screen, on Windows / Linux it
 //! is rendered in-app at the top of the window. The widgets are the
-//! `egui::menu::bar` helper inside an `egui::TopBottomPanel::top` slot,
-//! which is the form the milestone plan prescribes.
+//! `egui::MenuBar` helper inside an `egui::Panel::top` slot.
 //!
 //! ## Architecture
 //!
@@ -84,42 +83,65 @@ pub enum MenuActionOutcome {
 /// frame, including keyboard accelerators. Pure with respect to the
 /// controller: `ctrl.show_debug` is flipped in place through the View
 /// menu checkbox, everything else is reported through the return value.
-pub fn show_menu_bar(ctx: &egui::Context, ctrl: &mut AppController) -> Vec<MenuAction> {
+pub fn show_menu_bar(ui: &mut egui::Ui, ctrl: &mut AppController) -> Vec<MenuAction> {
     let mut actions = Vec::new();
+    let ctx = ui.ctx().clone();
+    let operation_blocked = !ctrl.can_start_operation();
 
-    egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
-        egui::menu::bar(ui, |ui| {
+    egui::Panel::top("menu_bar").show_inside(ui, |ui| {
+        egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| {
-                if ui.button("Open\u{2026}    Ctrl+O").clicked() {
+                if ui
+                    .add_enabled(
+                        !operation_blocked,
+                        egui::Button::new("Open\u{2026}    Ctrl+O"),
+                    )
+                    .clicked()
+                {
                     actions.push(MenuAction::Open);
-                    ui.close_menu();
+                    ui.close();
                 }
-                if ui.button("Close    Ctrl+W").clicked() {
+                if ui
+                    .add_enabled(!operation_blocked, egui::Button::new("Close    Ctrl+W"))
+                    .clicked()
+                {
                     actions.push(MenuAction::Close);
-                    ui.close_menu();
+                    ui.close();
                 }
                 ui.separator();
-                if ui.button("Extract\u{2026}    Ctrl+E").clicked() {
+                if ui
+                    .add_enabled(
+                        !operation_blocked,
+                        egui::Button::new("Extract\u{2026}    Ctrl+E"),
+                    )
+                    .clicked()
+                {
                     actions.push(MenuAction::Extract);
-                    ui.close_menu();
+                    ui.close();
                 }
-                if ui.button("Create\u{2026}").clicked() {
+                if ui
+                    .add_enabled(!operation_blocked, egui::Button::new("Create\u{2026}"))
+                    .clicked()
+                {
                     actions.push(MenuAction::Create);
-                    ui.close_menu();
+                    ui.close();
                 }
-                if ui.button("Test integrity").clicked() {
+                if ui
+                    .add_enabled(!operation_blocked, egui::Button::new("Test integrity"))
+                    .clicked()
+                {
                     actions.push(MenuAction::Test);
-                    ui.close_menu();
+                    ui.close();
                 }
                 ui.separator();
                 if ui.button("Settings\u{2026}").clicked() {
                     actions.push(MenuAction::Settings);
-                    ui.close_menu();
+                    ui.close();
                 }
                 ui.separator();
                 if ui.button("Quit    Ctrl+Q").clicked() {
                     actions.push(MenuAction::Quit);
-                    ui.close_menu();
+                    ui.close();
                 }
             });
             ui.menu_button("Edit", |ui| {
@@ -131,7 +153,7 @@ pub fn show_menu_bar(ctx: &egui::Context, ctrl: &mut AppController) -> Vec<MenuA
                     .add_enabled(false, egui::Button::new("Copy path (use context menu)"))
                     .clicked()
                 {
-                    ui.close_menu();
+                    ui.close();
                 }
             });
             ui.menu_button("View", |ui| {
@@ -140,7 +162,7 @@ pub fn show_menu_bar(ctx: &egui::Context, ctrl: &mut AppController) -> Vec<MenuA
             ui.menu_button("Help", |ui| {
                 if ui.button("About    F1").clicked() {
                     actions.push(MenuAction::About);
-                    ui.close_menu();
+                    ui.close();
                 }
             });
         });
@@ -149,13 +171,13 @@ pub fn show_menu_bar(ctx: &egui::Context, ctrl: &mut AppController) -> Vec<MenuA
     // Keyboard accelerators. The `consume_*` helpers would also work, but
     // we want every modifier to count as a fresh trigger on a fresh
     // frame, and the simple read-only form is enough for that.
-    if ctx.input(|i| i.modifiers.ctrl && i.key_pressed(egui::Key::O)) {
+    if !operation_blocked && ctx.input(|i| i.modifiers.ctrl && i.key_pressed(egui::Key::O)) {
         actions.push(MenuAction::Open);
     }
-    if ctx.input(|i| i.modifiers.ctrl && i.key_pressed(egui::Key::E)) {
+    if !operation_blocked && ctx.input(|i| i.modifiers.ctrl && i.key_pressed(egui::Key::E)) {
         actions.push(MenuAction::Extract);
     }
-    if ctx.input(|i| i.modifiers.ctrl && i.key_pressed(egui::Key::W)) {
+    if !operation_blocked && ctx.input(|i| i.modifiers.ctrl && i.key_pressed(egui::Key::W)) {
         actions.push(MenuAction::Close);
     }
     if ctx.input(|i| i.modifiers.ctrl && i.key_pressed(egui::Key::Q)) {
@@ -280,5 +302,32 @@ mod tests {
                 "{action:?} should be routed to the GUI front-end"
             );
         }
+    }
+
+    #[test]
+    fn worker_actions_are_rejected_while_an_operation_is_busy() {
+        let mut ctrl = AppController::default();
+        ctrl.apply(EngineEvent::Listed {
+            path: "/tmp/current.zip".into(),
+            backend_name: "zip",
+            entries: vec![],
+        });
+        assert!(ctrl.mark_busy("extracting"));
+
+        for action in [
+            MenuAction::Open,
+            MenuAction::Close,
+            MenuAction::Extract,
+            MenuAction::Create,
+            MenuAction::Test,
+        ] {
+            assert_eq!(
+                ctrl.dispatch_menu_action(action),
+                MenuActionOutcome::Noop,
+                "{action:?} must not start or clear work while busy"
+            );
+        }
+        assert!(ctrl.state().busy);
+        assert!(ctrl.state().open_archive.is_some());
     }
 }
