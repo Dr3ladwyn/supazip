@@ -66,3 +66,10 @@
 - [2026-08-20 15:18:46] Controller unit tests do not read or write the user's
   real recent-files JSON. Disk persistence is tested in `recent.rs`; controller
   tests use deterministic in-memory recent state.
+- [2026-08-22 15:54:34] CI Cargo invocations use version-controlled workspace and fuzz
+  lockfiles. Fuzz smoke is a required job rather than an advisory matrix leg:
+  all 15 binaries compile with warnings denied before the ZIP-list and 7z-
+  extraction runtime samples. Coverage runs the full workspace and parses
+  `TOTAL` line coverage, with 80% remaining the hard minimum. Fuzz inputs that
+  must satisfy `Read + Seek + 'static` are owned `Cursor<Vec<u8>>` values,
+  never borrowed slices.

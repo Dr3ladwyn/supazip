@@ -20,6 +20,16 @@
 - Local toolchain: rustc 1.88.0 (MSRV 1.92). The full workspace, including
   GUI, passes `fmt`, `clippy -D warnings`, and tests locally with
   `--ignore-rust-version`; plain Cargo commands still reject the MSRV mismatch.
+- [2026-08-22 15:54:34] CI/CD and security hardening is complete in the
+  uncommitted changeset on `traycer/soft-lion`: `sevenz-rust2 0.20.2`, a
+  refreshed lockfile with clean RustSec/license gates, blocking fuzz smoke,
+  repaired coverage parsing, reproducible `--locked` CI commands, and balanced
+  PowerShell working directories. All 15 fuzz binaries are a persisted compile
+  gate, and both workspace and fuzz lockfiles are covered by audit/deny.
+  Authoritative validation uses the installed
+  Rust 1.92 rustup shim (the machine also has a standalone Rust 1.88 earlier in
+  its default `PATH`). Full local CI with GUI passed; final coverage is 82.49%
+  lines with 214 active tests passing and 1 expected ignored test.
 
 ## Current blockers
 

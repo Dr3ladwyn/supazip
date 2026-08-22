@@ -22,9 +22,7 @@ jobs:
           workspaces: supazip -> target
       - name: Run coverage
         working-directory: supazip
-        run: |
-          cargo llvm-cov --workspace --locked --lcov --output-path lcov.info -- \
-            --ignore-rust-version
+        run: cargo llvm-cov --workspace --locked --lcov --output-path lcov.info
       - name: Upload to Codecov
         uses: codecov/codecov-action@v4
         with:
@@ -34,9 +32,13 @@ jobs:
       - name: Check threshold (80%)
         working-directory: supazip
         run: |
-          COV=$(cargo llvm-cov --workspace --locked --no-report --summary-only 2>&1 | grep 'TOTAL' | awk '{print $NF}' | tr -d '%')
+          COV=$(cargo llvm-cov report --summary-only | awk '$1 == "TOTAL" { gsub(/%/, "", $10); print $10 }')
+          if [ -z "$COV" ]; then
+            echo "::error::Could not parse line coverage from cargo-llvm-cov summary"
+            exit 1
+          fi
           echo "Coverage: $COV%"
-          if [ "$(echo "$COV < 80" | bc)" -eq 1 ]; then
+          if ! awk -v coverage="$COV" 'BEGIN { exit !(coverage >= 80) }'; then
             echo "::error::Coverage $COV% is below 80% threshold"
             exit 1
           fi

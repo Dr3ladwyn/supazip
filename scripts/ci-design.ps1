@@ -16,10 +16,6 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# Workspace lives one level up from this script (scripts/ is at the repo root).
-$root = Resolve-Path (Join-Path (Split-Path -Parent $PSCommandPath) "..")
-Set-Location $root.Path
-
 if ($env:SUPAAZIP_CI_NO_DESIGN -eq "1") {
     Write-Host "==> design checks: skipped (SUPAAZIP_CI_NO_DESIGN=1)"
     exit 0
@@ -34,15 +30,15 @@ if ($NoPython) {
 # `py -3`. Fail with a clear message if neither is available; CI always has
 # Python via actions/setup-python, but local devs may not.
 $pythonCmd = $null
+$pythonArgs = @()
 try {
     $pythonCmd = (Get-Command python -ErrorAction Stop).Source
 } catch {
     try {
-        $pyLauncher = (Get-Command py -ErrorAction Stop).Source
-        $pythonCmd = "$pyLauncher -3"
+        $pythonCmd = (Get-Command py -ErrorAction Stop).Source
+        $pythonArgs = @("-3")
     } catch {
-        Write-Error "==> design checks: FAILED (no Python interpreter found on PATH; install Python 3.11+ or set -NoPython)"
-        exit 1
+        throw "==> design checks: FAILED (no Python interpreter found on PATH; install Python 3.11+ or set -NoPython)"
     }
 }
 
@@ -53,15 +49,23 @@ $checks = @(
     "design/scripts/check_i18n.py"
 )
 
-foreach ($script in $checks) {
-    $fullPath = Join-Path $root.Path $script
-    if (-not (Test-Path $fullPath)) {
-        Write-Error "==> design checks: FAILED (missing $script)"
-        exit 1
+# Workspace lives one level up from this script (scripts/ is at the repo root).
+# Preserve the caller's location because this script is also invoked from
+# `ci.ps1`, which must remain inside the Cargo workspace afterwards.
+$root = Resolve-Path (Join-Path (Split-Path -Parent $PSCommandPath) "..")
+Push-Location $root.Path
+try {
+    foreach ($script in $checks) {
+        $fullPath = Join-Path $root.Path $script
+        if (-not (Test-Path $fullPath)) {
+            throw "==> design checks: FAILED (missing $script)"
+        }
+        Write-Host "==> python $script"
+        & $pythonCmd @pythonArgs $script
+        if ($LASTEXITCODE -ne 0) { throw "$script failed" }
     }
-    Write-Host "==> python $script"
-    & $pythonCmd $script
-    if ($LASTEXITCODE -ne 0) { throw "$script failed" }
-}
 
-Write-Host "==> design checks: passed"
+    Write-Host "==> design checks: passed"
+} finally {
+    Pop-Location
+}

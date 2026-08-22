@@ -92,13 +92,13 @@ fn show_recent_popup_contents(ui: &mut egui::Ui, recent: &[RecentEntry]) -> Rece
     }
 }
 
-impl eframe::App for App {
-    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+impl App {
+    fn apply_theme(&mut self, ctx: &egui::Context) {
         // eframe 0.34: `update` is deprecated; apply tokens before paint.
         theme::apply(ctx, self.ctrl.state().settings.theme);
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn render(&mut self, ui: &mut egui::Ui) {
         // Re-apply in `ui` so a theme change from Settings takes effect
         // this frame even if `logic` was skipped by a host.
         theme::apply(ui.ctx(), self.ctrl.state().settings.theme);
@@ -302,8 +302,22 @@ impl eframe::App for App {
         }
     }
 
-    fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
+    fn clear_color_value(&self, visuals: &egui::Visuals) -> [f32; 4] {
         visuals.panel_fill.to_normalized_gamma_f32()
+    }
+}
+
+impl eframe::App for App {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.apply_theme(ctx);
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.render(ui);
+    }
+
+    fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
+        self.clear_color_value(visuals)
     }
 }
 
@@ -1099,5 +1113,279 @@ mod tests {
 
         assert_eq!(second.action, Some(RecentPopupAction::Clear));
         assert!(!open, "clearing entries should dismiss the popup");
+    }
+
+    fn create_zip_fixture(root: &std::path::Path) -> (PathBuf, PathBuf) {
+        let input = root.join("fixture.txt");
+        let archive = root.join("fixture.zip");
+        std::fs::write(&input, b"coverage fixture").expect("write input");
+        let writer: Box<dyn supazip_core::traits::WriteSeek> = Box::new(std::io::BufWriter::new(
+            std::fs::File::create(&archive).expect("create archive"),
+        ));
+        formats::get_backend("zip")
+            .expect("zip backend")
+            .create(
+                writer,
+                std::slice::from_ref(&input),
+                &supazip_core::traits::CreateOptions::default(),
+                None,
+                &supazip_core::NoOpProgress,
+                &Limits::default(),
+            )
+            .expect("create zip fixture");
+        (archive, input)
+    }
+
+    fn assert_error_contains(event: EngineEvent, expected: &str) {
+        let EngineEvent::Error(message) = event else {
+            panic!("expected error event");
+        };
+        assert!(
+            message.contains(expected),
+            "expected {message:?} to contain {expected:?}"
+        );
+    }
+
+    fn render_accessible_frame(
+        app: &mut App,
+        input: egui::RawInput,
+    ) -> (egui::Context, Vec<String>) {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        app.apply_theme(&ctx);
+        let output = ctx.run_ui(input, |ui| app.render(ui));
+        assert!(!output.shapes.is_empty(), "render should emit paint shapes");
+        let update = output
+            .platform_output
+            .accesskit_update
+            .expect("accessibility tree should be emitted");
+        let mut text = Vec::new();
+        for (_, node) in update.nodes {
+            if let Some(label) = node.label() {
+                text.push(label.to_owned());
+            }
+            if let Some(value) = node.value() {
+                text.push(value.to_owned());
+            }
+        }
+        (ctx, text)
+    }
+
+    fn assert_accessible_text(text: &[String], expected: &str) {
+        assert!(
+            text.iter().any(|value| value.contains(expected)),
+            "expected accessibility output to contain {expected:?}, got {text:#?}"
+        );
+    }
+
+    #[test]
+    fn headless_archive_and_settings_frame_exposes_widgets() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let (archive, _) = create_zip_fixture(temp.path());
+        let mut app = App::default();
+        {
+            let state = app.ctrl.state_mut();
+            state.open_archive = Some(supazip_gui::OpenArchive {
+                path: archive.clone(),
+                backend_name: "zip",
+                entries: vec![OpenEntry {
+                    name: "fixture.txt".into(),
+                    size: 16,
+                    encrypted: false,
+                }],
+            });
+        }
+        app.ctrl
+            .dispatch_menu_action(supazip_gui::MenuAction::Settings);
+
+        let (ctx, text) = render_accessible_frame(&mut app, empty_input());
+
+        assert_accessible_text(&text, "fixture.txt");
+        assert_accessible_text(&text, "Settings");
+        assert_accessible_text(&text, "Save");
+        assert_eq!(
+            app.clear_color_value(&ctx.global_style().visuals),
+            ctx.global_style()
+                .visuals
+                .panel_fill
+                .to_normalized_gamma_f32()
+        );
+    }
+
+    #[test]
+    fn headless_progress_frame_exposes_modal_widgets() {
+        let mut app = App::default();
+        let progress = app
+            .ctrl
+            .begin_progress_operation("coverage render")
+            .expect("progress slot");
+        progress.set_progress(1, 2);
+        progress.set_message("fixture.txt");
+
+        let (_, text) = render_accessible_frame(&mut app, empty_input());
+
+        assert_accessible_text(&text, "Working");
+        assert_accessible_text(&text, "1/2");
+        assert_accessible_text(&text, "Current: fixture.txt");
+        assert_accessible_text(&text, "Cancel");
+        assert!(!app.ctrl.password_dialog_ref().visible);
+    }
+
+    #[test]
+    fn headless_password_frame_exposes_modal_widgets() {
+        let mut app = App::default();
+        app.ctrl
+            .request_password(PasswordTarget::Open("locked.7z".into()));
+
+        let (_, text) = render_accessible_frame(&mut app, empty_input());
+
+        assert_accessible_text(&text, "Password required");
+        assert_accessible_text(&text, "Password");
+        assert_accessible_text(&text, "Show password");
+        assert_accessible_text(&text, "OK");
+        assert_accessible_text(&text, "Cancel");
+        assert!(app.ctrl.progress().is_none());
+    }
+
+    #[test]
+    fn headless_hovered_file_frame_exposes_drop_overlay() {
+        let mut app = App::default();
+        let mut input = empty_input();
+        input.hovered_files.push(egui::HoveredFile {
+            path: Some("hovered.zip".into()),
+            mime: "application/zip".into(),
+        });
+
+        let (_, text) = render_accessible_frame(&mut app, input);
+
+        assert_accessible_text(&text, "Drop archive to open");
+    }
+
+    #[test]
+    fn blocking_workers_cover_success_and_terminal_error_paths() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let (archive, input) = create_zip_fixture(temp.path());
+        let progress = Arc::new(ProgressState::new());
+        let limits = Limits::default();
+
+        assert_error_contains(
+            run_list_blocking(&temp.path().join("archive.unknown"), None, &progress),
+            "unsupported",
+        );
+        assert_error_contains(
+            run_list_blocking(&temp.path().join("missing.zip"), None, &progress),
+            "open:",
+        );
+        let EngineEvent::Listed { entries, .. } = run_list_blocking(&archive, None, &progress)
+        else {
+            panic!("fixture should list");
+        };
+        assert_eq!(entries.len(), 1);
+
+        let selected_out = temp.path().join("selected");
+        std::fs::create_dir(&selected_out).expect("create selected output");
+        let selected = vec![entries[0].name.clone()];
+        let event = run_extract_entries_blocking(
+            &archive,
+            &selected_out,
+            &selected,
+            None,
+            &progress,
+            &limits,
+        );
+        assert!(matches!(&event, EngineEvent::Done(_)), "{event:?}");
+        assert_eq!(
+            std::fs::read(selected_out.join(&selected[0])).expect("extracted fixture"),
+            b"coverage fixture"
+        );
+
+        let all_out = temp.path().join("all");
+        std::fs::create_dir(&all_out).expect("create all output");
+        assert!(matches!(
+            run_extract_blocking(&archive, &all_out, None, &progress, &limits),
+            EngineEvent::Done(_)
+        ));
+        assert_error_contains(
+            run_extract_blocking(
+                &temp.path().join("archive.unknown"),
+                &all_out,
+                None,
+                &progress,
+                &limits,
+            ),
+            "unsupported",
+        );
+        assert_error_contains(
+            run_extract_blocking(
+                &temp.path().join("missing.zip"),
+                &all_out,
+                None,
+                &progress,
+                &limits,
+            ),
+            "open:",
+        );
+
+        assert!(matches!(
+            run_test_blocking(&archive, None, &progress, &limits),
+            EngineEvent::Done(_)
+        ));
+        assert_error_contains(
+            run_test_blocking(
+                &temp.path().join("archive.unknown"),
+                None,
+                &progress,
+                &limits,
+            ),
+            "unsupported",
+        );
+        assert_error_contains(
+            run_test_blocking(&temp.path().join("missing.zip"), None, &progress, &limits),
+            "open:",
+        );
+
+        assert_error_contains(
+            run_create_blocking(
+                &temp.path().join("archive.unknown"),
+                std::slice::from_ref(&input),
+                None,
+                &progress,
+                &limits,
+            ),
+            "unsupported",
+        );
+        assert_error_contains(
+            run_create_blocking(
+                &temp.path().join("missing-parent").join("archive.zip"),
+                std::slice::from_ref(&input),
+                None,
+                &progress,
+                &limits,
+            ),
+            "create target:",
+        );
+        let created = temp.path().join("created.zip");
+        assert!(matches!(
+            run_create_blocking(
+                &created,
+                std::slice::from_ref(&input),
+                None,
+                &progress,
+                &limits,
+            ),
+            EngineEvent::Done(_)
+        ));
+    }
+
+    #[test]
+    fn non_password_engine_error_keeps_operation_prefix() {
+        assert_error_contains(
+            map_engine_error(
+                PasswordTarget::Open("bad.zip".into()),
+                "list",
+                supazip_core::ArchiverError::invalid("bad"),
+            ),
+            "list:",
+        );
     }
 }

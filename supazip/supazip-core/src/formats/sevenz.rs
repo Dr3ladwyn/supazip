@@ -2,9 +2,11 @@ use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;
 
 use chrono::DateTime;
-use sevenz_rust::{
-    Error as SevenZError, Password, SevenZArchiveEntry, SevenZMethod, SevenZMethodConfiguration,
-    SevenZReader, SevenZWriter,
+use sevenz_rust2::{
+    encoder_options::AesEncoderOptions, ArchiveEntry as SevenZArchiveEntry,
+    ArchiveReader as SevenZReader, ArchiveWriter as SevenZWriter,
+    EncoderConfiguration as SevenZMethodConfiguration, EncoderMethod as SevenZMethod,
+    Error as SevenZError, Password,
 };
 
 use crate::error::ArchiverError;
@@ -39,24 +41,21 @@ impl SevenZBackend {
     }
 
     /// True if any folder in the archive uses AES-256-SHA256 encryption. This
-    /// is the most accurate signal we can get from `sevenz-rust 0.6.1` for the
-    /// `ArchiveEntry::encrypted` flag, because `SevenZArchiveEntry` exposes
-    /// its per-entry `content_methods` only at `pub(crate)` visibility. We
-    /// can read the public `archive.folders[].coders[].decompression_method_id()`
-    /// and compare to `SevenZMethod::AES256SHA256.id()`. The flag is reported
+    /// is the most accurate signal exposed by `sevenz-rust2` for the
+    /// `ArchiveEntry::encrypted` flag. We inspect the public block coder IDs
+    /// and compare them to `SevenZMethod::AES256_SHA256.id()`. The flag is reported
     /// at the archive level and propagated to every entry.
     fn archive_is_encrypted<R: Read + Seek>(
         reader: R,
         password: Password,
     ) -> Result<bool, ArchiverError> {
-        let seven =
-            SevenZReader::new(reader, u64::MAX, password).map_err(Self::map_sevenz_error)?;
-        let aes_id = SevenZMethod::AES256SHA256.id();
-        let encrypted = seven.archive().folders.iter().any(|folder| {
-            folder
+        let seven = SevenZReader::new(reader, password).map_err(Self::map_sevenz_error)?;
+        let aes_id = SevenZMethod::AES256_SHA256.id();
+        let encrypted = seven.archive().blocks.iter().any(|block| {
+            block
                 .coders
                 .iter()
-                .any(|c| c.decompression_method_id() == aes_id)
+                .any(|coder| coder.encoder_method_id() == aes_id)
         });
         Ok(encrypted)
     }
@@ -102,7 +101,7 @@ impl SevenZBackend {
     }
 
     fn map_sevenz_error(err: SevenZError) -> ArchiverError {
-        // `sevenz-rust 0.6.1` does not have a dedicated `Cancelled` variant,
+        // `sevenz-rust2 0.20` does not have a dedicated `Cancelled` variant,
         // and we cannot easily add one without forking the upstream crate. The
         // helper closures in this file use `SevenZError::Other(...)` with the
         // message "Operation cancelled" when the user requests cancellation;
@@ -179,8 +178,7 @@ impl SevenZBackend {
         R: Read + Seek,
         F: FnMut(&SevenZArchiveEntry, &mut dyn Read) -> Result<bool, SevenZError>,
     {
-        let mut seven =
-            SevenZReader::new(reader, u64::MAX, password).map_err(Self::map_sevenz_error)?;
+        let mut seven = SevenZReader::new(reader, password).map_err(Self::map_sevenz_error)?;
 
         seven
             .for_each_entries(|entry, entry_reader| {
@@ -482,7 +480,7 @@ impl ArchiveFormat for SevenZBackend {
         let mut sz = SevenZWriter::new(writer)
             .map_err(|e| ArchiverError::invalid_with_source("Failed to create 7z writer", e))?;
 
-        // Honour `--password` for 7z. `sevenz-rust 0.6.1` requires the
+        // Honour `--password` for 7z. `sevenz-rust2 0.20` requires the
         // `aes256` feature for AES-256 encryption; we enabled it in
         // `supazip-core/Cargo.toml`. The encoder options are applied to the
         // writer via `set_content_methods`, which replaces the default
@@ -492,7 +490,7 @@ impl ArchiveFormat for SevenZBackend {
         // silently dropped the password — encrypted create produced an
         // unencrypted archive. That is the bug this commit fixes.
         if let Some(pwd) = password {
-            let aes = sevenz_rust::AesEncoderOptions::new(Password::from(pwd));
+            let aes = AesEncoderOptions::new(Password::from(pwd));
             let chain: Vec<SevenZMethodConfiguration> =
                 vec![aes.into(), SevenZMethod::LZMA2.into()];
             sz.set_content_methods(chain);

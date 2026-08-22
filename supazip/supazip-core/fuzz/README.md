@@ -21,11 +21,9 @@ The harness count matches WS-C of the 0.2.0 milestone plan.
 | `tar.xz`  | `tarxz_list`   | `tarxz_extract`   | `tarxz_create`   |
 
 Each harness looks up its backend through the `supazip_core::BACKENDS`
-registry. If the backend has not been registered yet (the `tar*`
-backends land in WS-B, which is in flight), the harness returns
-immediately and is a **no-op** rather than a panic. This keeps the
-skeleton compilable today and ready to run as soon as each backend is
-wired up.
+registry. All five current backends are registered; the defensive
+`None => return` branch keeps a removed or renamed backend from turning
+the harness itself into a panic.
 
 ## Requirements
 
@@ -39,18 +37,21 @@ Install both on a developer machine:
 
 ```bash
 rustup install nightly
-cargo install cargo-fuzz
+cargo install cargo-fuzz --locked
 ```
 
 The CI smoke job installs nightly and the `cargo-fuzz` crate in its
-own environment — see the `fuzz-smoke` job in
-[`../../.github/workflows/ci.yml`](../../.github/workflows/ci.yml).
+own environment, compiles all 15 targets with warnings denied, and then
+runs two time-bounded harnesses — see the `fuzz-smoke` job in
+[`../../../.github/workflows/ci.yml`](../../../.github/workflows/ci.yml).
 
-> The local toolchain on the build machine that produced this
-> skeleton is **stable 1.92 only** (no nightly, no `cargo-fuzz`).
-> This is fine for compiling the rest of the workspace, and the
-> `fuzz/` sub-crate is excluded from the workspace precisely so the
-> stable build is unaffected.
+The `fuzz/` sub-crate remains excluded from the main workspace so normal
+stable builds are unaffected. Its targets use stable Rust and can also be
+compile-checked locally without starting libFuzzer:
+
+```bash
+cargo check --manifest-path fuzz/Cargo.toml --bins --locked
+```
 
 ## Running a single target
 
@@ -70,21 +71,25 @@ This will:
 A standard run never exits on its own; use `-- -max_total_time=N` for
 a time-bounded session (see CI smoke below).
 
-## 60-second CI smoke
+## Blocking CI gate
 
-The CI job runs two representative harnesses for **60 seconds each**:
+CI first compiles every declared fuzz binary, so any broken harness fails
+the pull request even when it is not one of the two runtime samples:
+
+```bash
+cargo +nightly check --manifest-path fuzz/Cargo.toml --bins --locked
+```
+
+It then runs two representative harnesses for **60 seconds each**:
 
 ```bash
 cargo +nightly fuzz run zip_list       -- -max_total_time=60
 cargo +nightly fuzz run sevenz_extract -- -max_total_time=60
 ```
 
-These two are the only targets that exercise backends which already
-existed before 0.2.0 (the `tar*` backends are in flight under WS-B and
-their harnesses are no-ops until the registry knows about them). The
-job is **not a hard gate** during 0.2.0: it is `continue-on-error: true`
-and acts as a regression alarm only. Promotion to a hard gate is a
-0.4.0 deliverable per `ROADMAP.md` → Track C.
+The selected runtime cases cover a read path and an extraction path across
+ZIP and 7z. The job has no `continue-on-error` escape hatch: compilation
+failure or a runtime crash is a blocking CI failure.
 
 ## Adding a new target
 
@@ -92,8 +97,9 @@ and acts as a regression alarm only. Promotion to a hard gate is a
 2. Replace the extension string in the `get_backend("...")` call with
    the new backend's primary extension.
 3. Add a row to the table above.
-4. Update the smoke job in `.github/workflows/ci.yml` if the target
-   should be exercised in CI.
+4. Run the all-target compile command above. Add the target to the two
+   runtime samples in `.github/workflows/ci.yml` only when it replaces or
+   materially extends their coverage.
 
 ## Triage
 

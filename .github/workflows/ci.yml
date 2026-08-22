@@ -47,7 +47,7 @@ jobs:
 
       - name: cargo clippy
         working-directory: supazip
-        run: cargo clippy -p supazip-core -p supazip-cli --no-deps -- -D warnings --locked
+        run: cargo clippy -p supazip-core -p supazip-cli --no-deps --locked -- -D warnings
 
       - name: cargo doc
         working-directory: supazip
@@ -90,16 +90,12 @@ jobs:
   fuzz-smoke:
     name: Fuzz smoke (${{ matrix.strategy }})
     runs-on: ubuntu-latest
-    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
-        # `smoke` runs two representative cargo-fuzz harnesses for 60 seconds
-        # each. `none` is the explicit off-switch; useful for the initial cut
-        # of 0.2.0 when nightly / cargo-fuzz is not yet available on the
-        # runner. The job is `continue-on-error: true` either way: it is a
-        # regression alarm, not a hard gate, in 0.2.0.
-        strategy: [smoke, none]
+        # Run representative read and extraction harnesses. A harness that no
+        # longer compiles or crashes is a CI failure, not a soft warning.
+        strategy: [smoke]
     steps:
       - uses: actions/checkout@v4
 
@@ -125,7 +121,12 @@ jobs:
 
       - name: Install cargo-fuzz
         if: matrix.strategy == 'smoke'
-        run: cargo install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Compile all fuzz targets
+        if: matrix.strategy == 'smoke'
+        working-directory: supazip/supazip-core/fuzz
+        run: cargo +nightly check --bins --locked
 
       - name: Fuzz zip_list (60s)
         if: matrix.strategy == 'smoke'
@@ -136,9 +137,3 @@ jobs:
         if: matrix.strategy == 'smoke'
         working-directory: supazip/supazip-core
         run: cargo +nightly fuzz run sevenz_extract -- -max_total_time=60
-
-      - name: Skip
-        if: matrix.strategy == 'none'
-        run: |
-          echo "fuzz smoke disabled for this run (matrix.strategy=none) — set matrix.strategy=smoke to enable the 60s cargo-fuzz smoke."
-          echo "see supazip-core/fuzz/README.md for the manual runbook."

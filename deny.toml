@@ -16,17 +16,23 @@ allow = [
     "MIT",
     "Apache-2.0",
     "Unicode-3.0",
-    "Unicode-DFS-2016",
     "BSD-2-Clause",
     "BSD-3-Clause",
     "Zlib",
     "ISC",
     "0BSD",
+    "bzip2-1.0.6",  # bzip2 reference license used by sevenz-rust2's Rust sys shim
     "BSL-1.0",       # Boost Software License — used by clipboard-win, error-code
     "CC0-1.0",       # Creative Commons Zero — used by hexf-parse
     "MPL-2.0",       # Mozilla Public License 2.0 — used by option-ext
     "OFL-1.1",       # SIL Open Font License — used by egui embedded fonts
     "Ubuntu-font-1.0", # Ubuntu Font License — used by egui embedded fonts
+]
+# libfuzzer-sys statically links LLVM's libFuzzer runtime, whose source is
+# distributed under the OSI-approved NCSA license. Keep this scoped to the
+# fuzz-only crate instead of widening the production dependency allowlist.
+exceptions = [
+    { allow = ["NCSA"], crate = "libfuzzer-sys" },
 ]
 private = { ignore = true }
 
