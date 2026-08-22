@@ -498,7 +498,7 @@ impl ArchiveFormat for ZipBackend {
                 let dir_name = if name.ends_with('/') {
                     name.clone()
                 } else {
-                    format!("{}/", name)
+                    format!("{name}/")
                 };
                 zip_writer
                     .start_file(&dir_name, file_options)

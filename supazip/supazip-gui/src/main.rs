@@ -4,6 +4,7 @@
 //! thin shim that boots a tokio runtime (so the GUI can use `signal` and
 //! `rt-multi-thread` features) and hands an `App` to eframe.
 
+use std::io::{self, Read};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -14,7 +15,8 @@ use supazip_core::{formats, Limits};
 use supazip_gui::context_menu::{EntryAction, EntryContextAction};
 use supazip_gui::icons::{ToolbarButton, ToolbarIcon};
 use supazip_gui::{
-    dialogs, dnd, theme, AppController, EngineEvent, OpenEntry, PasswordOpKind, PasswordTarget,
+    dialogs, dnd, theme, AppController, EngineEvent, ExtractRequest, OpenEntry, PasswordSubmission,
+    PasswordTarget, RecentEntry,
 };
 
 // ---------------------------------------------------------------------------
@@ -26,13 +28,77 @@ pub struct App {
     ctrl: AppController,
 }
 
-impl eframe::App for App {
-    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RecentPopupAction {
+    Open(PathBuf),
+    Clear,
+}
+
+struct RecentPopupOutput {
+    action: Option<RecentPopupAction>,
+    #[cfg(test)]
+    open_rects: Vec<(egui::Rect, egui::LayerId)>,
+    #[cfg(test)]
+    clear_rect: Option<(egui::Rect, egui::LayerId)>,
+}
+
+fn show_recent_popup_contents(ui: &mut egui::Ui, recent: &[RecentEntry]) -> RecentPopupOutput {
+    ui.set_min_width(320.0);
+    #[cfg(test)]
+    let mut open_rects = Vec::with_capacity(recent.len());
+    #[cfg(test)]
+    let mut clear_rect = None;
+
+    if recent.is_empty() {
+        ui.label("(no recent files)");
+        return RecentPopupOutput {
+            action: None,
+            #[cfg(test)]
+            open_rects,
+            #[cfg(test)]
+            clear_rect,
+        };
+    }
+
+    let mut action = None;
+    for entry in recent {
+        let response = ui.button(entry.path.display().to_string());
+        #[cfg(test)]
+        open_rects.push((response.rect, response.layer_id));
+        if response.clicked() {
+            ui.close();
+            action = Some(RecentPopupAction::Open(entry.path.clone()));
+            break;
+        }
+    }
+    if action.is_none() {
+        ui.separator();
+        let response = ui.button("Clear recent");
+        #[cfg(test)]
+        {
+            clear_rect = Some((response.rect, response.layer_id));
+        }
+        if response.clicked() {
+            ui.close();
+            action = Some(RecentPopupAction::Clear);
+        }
+    }
+    RecentPopupOutput {
+        action,
+        #[cfg(test)]
+        open_rects,
+        #[cfg(test)]
+        clear_rect,
+    }
+}
+
+impl App {
+    fn apply_theme(&mut self, ctx: &egui::Context) {
         // eframe 0.34: `update` is deprecated; apply tokens before paint.
         theme::apply(ctx, self.ctrl.state().settings.theme);
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn render(&mut self, ui: &mut egui::Ui) {
         // Re-apply in `ui` so a theme change from Settings takes effect
         // this frame even if `logic` was skipped by a host.
         theme::apply(ui.ctx(), self.ctrl.state().settings.theme);
@@ -46,12 +112,12 @@ impl eframe::App for App {
         // standard open pipeline handles it.
         let opened = dnd::handle_dropped_files(ui.ctx(), &mut self.ctrl);
         for path in opened {
-            self.spawn_list(path);
+            self.spawn_reserved_list_worker(path, None);
         }
 
         // Menu bar — renders the native-style bar and returns the
         // actions the user triggered this frame (keyboard + clicks).
-        let menu_actions = supazip_gui::menubar::show_menu_bar(ui.ctx(), &mut self.ctrl);
+        let menu_actions = supazip_gui::menubar::show_menu_bar(ui, &mut self.ctrl);
         for action in menu_actions {
             self.dispatch_menu_action(action);
         }
@@ -70,9 +136,12 @@ impl eframe::App for App {
             .frame(theme::chrome_frame(ui.ctx()))
             .show_inside(ui, |ui| {
                 ui.horizontal(|ui| {
-                    let busy = self.ctrl.state().busy;
+                    let operation_blocked = !self.ctrl.can_start_operation();
                     if ui
-                        .add_enabled(!busy, ToolbarButton::new(ToolbarIcon::Open, "Open…"))
+                        .add_enabled(
+                            !operation_blocked,
+                            ToolbarButton::new(ToolbarIcon::Open, "Open…"),
+                        )
                         .clicked()
                     {
                         self.open_dialog();
@@ -87,37 +156,26 @@ impl eframe::App for App {
                         format!("Recent ({})", recent.len())
                     };
                     let recent_btn = ui.add_enabled(
-                        !busy && !recent.is_empty(),
+                        !operation_blocked && !recent.is_empty(),
                         ToolbarButton::new(ToolbarIcon::Recent, recent_label),
                     );
-                    egui::Popup::from_toggle_button_response(&recent_btn)
+                    let recent_action = egui::Popup::from_toggle_button_response(&recent_btn)
                         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-                        .show(|ui| {
-                            ui.set_min_width(320.0);
-                            if recent.is_empty() {
-                                ui.label("(no recent files)");
-                            } else {
-                                for entry in &recent {
-                                    let label = entry.path.display().to_string();
-                                    if ui.button(&label).clicked() {
-                                        let p = entry.path.clone();
-                                        if p.exists() {
-                                            self.spawn_list(p);
-                                        } else {
-                                            self.ctrl.apply(EngineEvent::Error(format!(
-                                                "missing: {}",
-                                                p.display()
-                                            )));
-                                        }
-                                    }
-                                }
-                                ui.separator();
-                                if ui.button("Clear recent").clicked() {
-                                    self.clear_recent_clicked();
-                                }
-                            }
-                        });
-                    let can_extract = self.ctrl.state().open_archive.is_some() && !busy;
+                        .show(|ui| show_recent_popup_contents(ui, &recent))
+                        .and_then(|response| response.inner.action);
+                    match recent_action {
+                        Some(RecentPopupAction::Open(path)) if path.exists() => {
+                            self.spawn_list(path);
+                        }
+                        Some(RecentPopupAction::Open(path)) => {
+                            self.ctrl
+                                .apply(EngineEvent::Error(format!("missing: {}", path.display())));
+                        }
+                        Some(RecentPopupAction::Clear) => self.clear_recent_clicked(),
+                        None => {}
+                    }
+                    let can_extract =
+                        self.ctrl.state().open_archive.is_some() && !operation_blocked;
                     if ui
                         .add_enabled(
                             can_extract,
@@ -128,19 +186,22 @@ impl eframe::App for App {
                         self.extract_clicked();
                     }
                     if ui
-                        .add_enabled(!busy, ToolbarButton::new(ToolbarIcon::Create, "Create…"))
+                        .add_enabled(
+                            !operation_blocked,
+                            ToolbarButton::new(ToolbarIcon::Create, "Create…"),
+                        )
                         .clicked()
                     {
                         self.create_clicked();
                     }
-                    let can_test = self.ctrl.state().open_archive.is_some() && !busy;
+                    let can_test = self.ctrl.state().open_archive.is_some() && !operation_blocked;
                     if ui
                         .add_enabled(can_test, ToolbarButton::new(ToolbarIcon::Test, "Test"))
                         .clicked()
                     {
                         self.test_clicked();
                     }
-                    if busy
+                    if self.ctrl.progress().is_some()
                         && ui
                             .add(ToolbarButton::new(ToolbarIcon::Cancel, "Cancel"))
                             .clicked()
@@ -161,55 +222,71 @@ impl eframe::App for App {
                 });
             });
 
-        let open_archive = self.ctrl.state().open_archive.clone();
-        egui::CentralPanel::default().show_inside(ui, |ui| match &open_archive {
-            Some(oa) => {
-                ui.heading(format!("{} ({})", oa.path.display(), oa.backend_name));
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    egui::Grid::new("entries")
-                        .num_columns(4)
-                        .striped(true)
-                        .show(ui, |ui| {
-                            ui.label("#");
-                            ui.label("Name");
-                            ui.label("Size");
-                            ui.label("Encrypted");
-                            ui.end_row();
-                            for (i, e) in oa.entries.iter().enumerate() {
-                                ui.monospace(i.to_string());
-                                let name_response = ui.add(
-                                    egui::Label::new(&e.name)
-                                        .selectable(false)
-                                        .sense(egui::Sense::click()),
-                                );
-                                name_response.context_menu(|ui| {
-                                    if let Some(action) =
-                                        supazip_gui::context_menu::show_entry_context_menu(ui, e)
-                                    {
-                                        self.dispatch_entry_action(action);
+        let mut pending_entry_action = None;
+        let content_enabled = self.ctrl.can_start_operation();
+        egui::CentralPanel::default().show_inside(ui, |ui| {
+            ui.add_enabled_ui(content_enabled, |ui| {
+                match &self.ctrl.state().open_archive {
+                    Some(oa) => {
+                        ui.heading(format!("{} ({})", oa.path.display(), oa.backend_name));
+                        egui::ScrollArea::vertical().show(ui, |ui| {
+                            egui::Grid::new("entries")
+                                .num_columns(4)
+                                .striped(true)
+                                .show(ui, |ui| {
+                                    ui.label("#");
+                                    ui.label("Name");
+                                    ui.label("Size");
+                                    ui.label("Encrypted");
+                                    ui.end_row();
+                                    for (i, e) in oa.entries.iter().enumerate() {
+                                        ui.monospace(i.to_string());
+                                        let name_response = ui.add(
+                                            egui::Label::new(&e.name)
+                                                .selectable(false)
+                                                .sense(egui::Sense::click()),
+                                        );
+                                        name_response.context_menu(|ui| {
+                                            if let Some(action) =
+                                                supazip_gui::context_menu::show_entry_context_menu(
+                                                    ui, e,
+                                                )
+                                            {
+                                                pending_entry_action = Some(action);
+                                            }
+                                        });
+                                        ui.monospace(format!("{} B", e.size));
+                                        ui.label(if e.encrypted { "yes" } else { "-" });
+                                        ui.end_row();
                                     }
                                 });
-                                ui.monospace(format!("{} B", e.size));
-                                ui.label(if e.encrypted { "yes" } else { "-" });
-                                ui.end_row();
-                            }
                         });
-                });
-            }
-            None => {
-                ui.vertical_centered(|ui| {
-                    ui.heading("SupaZip");
-                    ui.label("Open an archive (7z or ZIP) to view its contents.");
-                });
-            }
+                    }
+                    None => {
+                        ui.vertical_centered(|ui| {
+                            ui.heading("SupaZip");
+                            ui.label("Open an archive (7z or ZIP) to view its contents.");
+                        });
+                    }
+                }
+            });
         });
+        if let Some(action) = pending_entry_action {
+            self.dispatch_entry_action(action);
+        }
 
         // WS-E: render the modal password dialog. The dialog state lives
         // on the controller; the GUI owns the egui::Context the modal
         // needs. If the user submits a value we re-dispatch the operation
         // that opened the dialog.
-        if let Some(pwd) = dialogs::show_password_dialog(ui.ctx(), self.ctrl.password_dialog()) {
-            self.password_dialog_submitted(pwd);
+        if let Some(submission) =
+            dialogs::show_password_dialog(ui.ctx(), self.ctrl.password_dialog())
+        {
+            self.password_dialog_submitted(submission);
+        }
+
+        if let Some(progress) = self.ctrl.progress() {
+            supazip_gui::show_progress_modal(ui.ctx(), progress);
         }
 
         // WS-G: render the settings window when the user opened it from
@@ -225,8 +302,22 @@ impl eframe::App for App {
         }
     }
 
-    fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
+    fn clear_color_value(&self, visuals: &egui::Visuals) -> [f32; 4] {
         visuals.panel_fill.to_normalized_gamma_f32()
+    }
+}
+
+impl eframe::App for App {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.apply_theme(ctx);
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.render(ui);
+    }
+
+    fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
+        self.clear_color_value(visuals)
     }
 }
 
@@ -315,11 +406,34 @@ impl App {
     }
 
     fn spawn_list_with_password(&mut self, path: PathBuf, password: Option<String>) {
+        let Some(progress) = self
+            .ctrl
+            .begin_progress_operation(format!("opening {}…", path.display()))
+        else {
+            return;
+        };
+        self.spawn_list_worker(path, password, progress);
+    }
+
+    fn spawn_reserved_list_worker(&mut self, path: PathBuf, password: Option<String>) {
+        let Some(progress) = self.ctrl.attach_progress_to_reserved_operation() else {
+            self.ctrl.apply(EngineEvent::Error(
+                "internal error: open operation lost its worker reservation".into(),
+            ));
+            return;
+        };
+        self.spawn_list_worker(path, password, progress);
+    }
+
+    fn spawn_list_worker(
+        &mut self,
+        path: PathBuf,
+        password: Option<String>,
+        progress: Arc<ProgressState>,
+    ) {
         let tx = self.ctrl.engine_sender();
-        let _cancel = self.ctrl.cancel_handle();
-        self.ctrl.mark_busy(format!("opening {}…", path.display()));
         std::thread::spawn(move || {
-            let ev = run_list_blocking(&path, password.as_deref());
+            let ev = run_list_blocking(&path, password.as_deref(), &progress);
             let _ = tx.send(ev);
         });
     }
@@ -335,13 +449,14 @@ impl App {
         password: Option<String>,
     ) {
         let tx = self.ctrl.engine_sender();
-        let progress = self.ctrl.cancel_handle();
-        let limits = *self.ctrl.limits();
-        self.ctrl.mark_busy(format!(
+        let Some(progress) = self.ctrl.begin_progress_operation(format!(
             "extracting {} to {}…",
             archive.display(),
             out.display()
-        ));
+        )) else {
+            return;
+        };
+        let limits = *self.ctrl.limits();
         std::thread::spawn(move || {
             let ev = run_extract_blocking(&archive, &out, password.as_deref(), &progress, &limits);
             let _ = tx.send(ev);
@@ -359,13 +474,14 @@ impl App {
         password: Option<String>,
     ) {
         let tx = self.ctrl.engine_sender();
-        let progress = self.ctrl.cancel_handle();
-        let limits = *self.ctrl.limits();
-        self.ctrl.mark_busy(format!(
+        let Some(progress) = self.ctrl.begin_progress_operation(format!(
             "creating {} ({} entries)…",
             target.display(),
             inputs.len()
-        ));
+        )) else {
+            return;
+        };
+        let limits = *self.ctrl.limits();
         std::thread::spawn(move || {
             let ev = run_create_blocking(&target, &inputs, password.as_deref(), &progress, &limits);
             let _ = tx.send(ev);
@@ -378,10 +494,13 @@ impl App {
 
     fn spawn_test_with_password(&mut self, archive: PathBuf, password: Option<String>) {
         let tx = self.ctrl.engine_sender();
-        let progress = self.ctrl.cancel_handle();
+        let Some(progress) = self
+            .ctrl
+            .begin_progress_operation(format!("testing {}…", archive.display()))
+        else {
+            return;
+        };
         let limits = *self.ctrl.limits();
-        self.ctrl
-            .mark_busy(format!("testing {}…", archive.display()));
         std::thread::spawn(move || {
             let ev = run_test_blocking(&archive, password.as_deref(), &progress, &limits);
             let _ = tx.send(ev);
@@ -392,9 +511,18 @@ impl App {
     /// the intent in state (busy / status) for every variant; the GUI
     /// additionally spawns a worker for the extract variants.
     fn dispatch_entry_action(&mut self, action: EntryContextAction) {
+        if !self.ctrl.can_start_operation() {
+            return;
+        }
         match &action.kind {
             EntryAction::ExtractHere(dest) | EntryAction::ExtractTo(dest) => {
-                let Some(oa) = self.ctrl.state().open_archive.clone() else {
+                let Some(archive) = self
+                    .ctrl
+                    .state()
+                    .open_archive
+                    .as_ref()
+                    .map(|archive| archive.path.clone())
+                else {
                     return;
                 };
                 let entries = vec![action.entry_name.clone()];
@@ -410,14 +538,7 @@ impl App {
                     return;
                 }
 
-                // Apply the EngineEvent::Extract so the state-machine
-                // tests see the intent without a worker.
-                self.ctrl.apply(EngineEvent::Extract {
-                    entries: entries.clone(),
-                    dest: dest_for_spawn.clone(),
-                    password: None,
-                });
-                self.spawn_extract_entries(oa.path, dest_for_spawn, entries);
+                self.spawn_extract_entries(archive, dest_for_spawn, entries);
             }
             EntryAction::TestEntry | EntryAction::CopyPath => {
                 // No worker thread needed: status update only. The
@@ -428,7 +549,13 @@ impl App {
     }
 
     fn spawn_extract_entries(&mut self, archive: PathBuf, out: PathBuf, entries: Vec<String>) {
-        self.spawn_extract_entries_with_password(archive, out, entries, None);
+        let Some(progress) = self.ctrl.attach_progress_to_reserved_operation() else {
+            self.ctrl.apply(EngineEvent::Error(
+                "internal error: extract operation lost its worker reservation".into(),
+            ));
+            return;
+        };
+        self.spawn_extract_entries_worker(archive, out, entries, None, progress);
     }
 
     fn spawn_extract_entries_with_password(
@@ -438,16 +565,28 @@ impl App {
         entries: Vec<String>,
         password: Option<String>,
     ) {
-        let tx = self.ctrl.engine_sender();
-        let progress = self.ctrl.cancel_handle();
-        let limits = *self.ctrl.limits();
-        self.ctrl.mark_busy(format!(
+        let Some(progress) = self.ctrl.begin_progress_operation(format!(
             "extracting {} entr{} from {} to {}…",
             entries.len(),
             if entries.len() == 1 { "y" } else { "ies" },
             archive.display(),
             out.display()
-        ));
+        )) else {
+            return;
+        };
+        self.spawn_extract_entries_worker(archive, out, entries, password, progress);
+    }
+
+    fn spawn_extract_entries_worker(
+        &mut self,
+        archive: PathBuf,
+        out: PathBuf,
+        entries: Vec<String>,
+        password: Option<String>,
+        progress: Arc<ProgressState>,
+    ) {
+        let tx = self.ctrl.engine_sender();
+        let limits = *self.ctrl.limits();
         // The EngineEvent::Extract was applied by the caller; do not
         // double-apply it here.
         std::thread::spawn(move || {
@@ -468,40 +607,20 @@ impl App {
     /// Create / Test); the GUI is responsible for re-spawning the worker
     /// with the entered password. For Extract, the cached intent on the
     /// `Action` is honoured by spawning the entry-list worker again.
-    fn password_dialog_submitted(&mut self, password: String) {
-        let target = self.ctrl.password_dialog().target.take();
-        // Clear the dialog state before doing anything that could re-open
-        // it (avoid a re-entrancy loop if the worker fails again).
-        self.ctrl.password_dialog().visible = false;
-        self.ctrl.password_dialog().password.clear();
-        self.ctrl.password_dialog().show_password = false;
-        self.ctrl.password_dialog().error = None;
-
-        match target {
-            Some(PasswordTarget::Open(path)) => {
+    fn password_dialog_submitted(&mut self, submission: PasswordSubmission) {
+        match password_retry_command(submission) {
+            PasswordRetryCommand::Open { path, password } => {
                 self.spawn_list_with_password(path, Some(password));
             }
-            Some(PasswordTarget::Extract(path)) => {
-                // For context-menu / toolbar extract we don't know the
-                // specific entries here; replay through the same code path
-                // the open-archive flow uses for "extract all". The
-                // `EngineEvent::Extract` was applied earlier and the
-                // archive is still loaded.
-                let dest = self
-                    .ctrl
-                    .state()
-                    .open_archive
-                    .as_ref()
-                    .map(|oa| {
-                        oa.path
-                            .parent()
-                            .map(|p| p.to_path_buf())
-                            .unwrap_or_default()
-                    })
-                    .unwrap_or_else(|| path.parent().map(|p| p.to_path_buf()).unwrap_or_default());
-                self.spawn_extract_with_password(path, dest, Some(password));
+            PasswordRetryCommand::Extract { request, password } => {
+                self.spawn_extract_entries_with_password(
+                    request.archive,
+                    request.destination,
+                    request.entries,
+                    Some(password),
+                );
             }
-            Some(PasswordTarget::Create(path)) => {
+            PasswordRetryCommand::CreateUnsupported { path } => {
                 // Create-with-password needs the original input list. The
                 // controller does not currently cache it; the caller is
                 // expected to re-trigger the create flow. As a fallback we
@@ -511,8 +630,8 @@ impl App {
                     path.display()
                 )));
             }
-            None => {
-                // Stale submit (e.g. dialog closed programmatically): no-op.
+            PasswordRetryCommand::Test { path, password } => {
+                self.spawn_test_with_password(path, Some(password));
             }
         }
     }
@@ -522,26 +641,99 @@ impl App {
 // Worker-thread bodies. Plain functions so the App impl above stays small.
 // ---------------------------------------------------------------------------
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PasswordRetryCommand {
+    Open {
+        path: PathBuf,
+        password: String,
+    },
+    Extract {
+        request: ExtractRequest,
+        password: String,
+    },
+    CreateUnsupported {
+        path: PathBuf,
+    },
+    Test {
+        path: PathBuf,
+        password: String,
+    },
+}
+
+fn password_retry_command(submission: PasswordSubmission) -> PasswordRetryCommand {
+    let PasswordSubmission { target, password } = submission;
+    match target {
+        PasswordTarget::Open(path) => PasswordRetryCommand::Open { path, password },
+        PasswordTarget::Extract(request) => PasswordRetryCommand::Extract { request, password },
+        PasswordTarget::Create(path) => PasswordRetryCommand::CreateUnsupported { path },
+        PasswordTarget::Test(path) => PasswordRetryCommand::Test { path, password },
+    }
+}
+
 /// Translate an `ArchiverError` from the engine into a GUI event. Password
 /// errors are mapped to `EngineEvent::PasswordRequired` so the controller
 /// can open the modal dialog and the user can retry with a real key.
 fn map_engine_error(
-    op: PasswordOpKind,
-    path: &std::path::Path,
+    target: PasswordTarget,
     prefix: &str,
     e: supazip_core::ArchiverError,
 ) -> EngineEvent {
     use supazip_core::ArchiverError as A;
     match e {
-        A::PasswordRequired | A::WrongPassword => EngineEvent::PasswordRequired {
-            path: path.to_path_buf(),
-            kind: op,
-        },
+        A::PasswordRequired | A::WrongPassword => EngineEvent::PasswordRequired { target },
         other => EngineEvent::Error(format!("{prefix}: {other}")),
     }
 }
 
-fn run_list_blocking(path: &std::path::Path, password: Option<&str>) -> EngineEvent {
+fn map_extract_error(
+    archive: &std::path::Path,
+    out: &std::path::Path,
+    entries: &[String],
+    e: supazip_core::ArchiverError,
+) -> EngineEvent {
+    map_engine_error(
+        PasswordTarget::Extract(ExtractRequest {
+            archive: archive.to_path_buf(),
+            destination: out.to_path_buf(),
+            entries: entries.to_vec(),
+        }),
+        "extract",
+        e,
+    )
+}
+
+struct CancellableReader<R> {
+    inner: R,
+    progress: Arc<ProgressState>,
+}
+
+impl<R> CancellableReader<R> {
+    fn new(inner: R, progress: Arc<ProgressState>) -> Self {
+        Self { inner, progress }
+    }
+}
+
+impl<R: Read> Read for CancellableReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if self.progress.is_cancelled() {
+            return Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "archive listing cancelled",
+            ));
+        }
+        self.inner.read(buf)
+    }
+}
+
+fn run_list_blocking(
+    path: &std::path::Path,
+    password: Option<&str>,
+    progress: &Arc<ProgressState>,
+) -> EngineEvent {
+    progress.set_message("Reading archive index");
+    if progress.is_cancelled() {
+        return EngineEvent::Error("list: cancelled".into());
+    }
     let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
     let Some(backend) = formats::get_backend(ext) else {
         return EngineEvent::Error(format!("unsupported: {ext}"));
@@ -550,17 +742,24 @@ fn run_list_blocking(path: &std::path::Path, password: Option<&str>) -> EngineEv
         Ok(f) => f,
         Err(e) => return EngineEvent::Error(format!("open: {e}")),
     };
-    match backend.list(
-        Box::new(std::io::BufReader::new(file)),
+    let result = backend.list(
+        Box::new(CancellableReader::new(
+            std::io::BufReader::new(file),
+            progress.clone(),
+        )),
         password,
         &Limits::default(),
-    ) {
+    );
+    if progress.is_cancelled() {
+        return EngineEvent::Error("list: cancelled".into());
+    }
+    match result {
         Ok(list) => EngineEvent::Listed {
             path: path.to_path_buf(),
             backend_name: backend.name(),
             entries: list.into_iter().map(OpenEntry::from).collect(),
         },
-        Err(e) => map_engine_error(PasswordOpKind::Open, path, "list", e),
+        Err(e) => map_engine_error(PasswordTarget::Open(path.to_path_buf()), "list", e),
     }
 }
 
@@ -605,7 +804,7 @@ fn run_extract_entries_blocking(
         limits,
     ) {
         Ok(()) => EngineEvent::Done(format!("extracted to {}", out.display())),
-        Err(e) => map_engine_error(PasswordOpKind::Extract, archive, "extract", e),
+        Err(e) => map_extract_error(archive, out, entries, e),
     }
 }
 
@@ -633,7 +832,7 @@ fn run_create_blocking(
     let cb: &dyn supazip_core::traits::ProgressCallback = progress;
     match backend.create(writer, inputs, &opts, password, cb, limits) {
         Ok(()) => EngineEvent::Done(format!("created {}", target.display())),
-        Err(e) => map_engine_error(PasswordOpKind::Create, target, "create", e),
+        Err(e) => map_engine_error(PasswordTarget::Create(target.to_path_buf()), "create", e),
     }
 }
 
@@ -660,7 +859,7 @@ fn run_test_blocking(
     ) {
         Ok(true) => EngineEvent::Done(format!("OK: {}", archive.display())),
         Ok(false) => EngineEvent::Error("test: integrity check failed".into()),
-        Err(e) => map_engine_error(PasswordOpKind::Test, archive, "test", e),
+        Err(e) => map_engine_error(PasswordTarget::Test(archive.to_path_buf()), "test", e),
     }
 }
 
@@ -691,5 +890,502 @@ fn main() {
     ) {
         eprintln!("eframe failed: {e}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn popup_frame(
+        ctx: &egui::Context,
+        input: egui::RawInput,
+        open: &mut bool,
+        recent: &[RecentEntry],
+    ) -> RecentPopupOutput {
+        let mut output = None;
+        let _ = ctx.run_ui(input, |ui| {
+            let anchor = ui.allocate_response(egui::vec2(80.0, 24.0), egui::Sense::hover());
+            output = egui::Popup::from_response(&anchor)
+                .open_bool(open)
+                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                .show(|ui| show_recent_popup_contents(ui, recent))
+                .map(|response| response.inner);
+        });
+        let mut output = output.expect("popup should be open");
+        for (rect, layer_id) in &mut output.open_rects {
+            if let Some(transform) = ctx.layer_transform_to_global(*layer_id) {
+                *rect = transform * *rect;
+            }
+        }
+        if let Some((rect, layer_id)) = &mut output.clear_rect {
+            if let Some(transform) = ctx.layer_transform_to_global(*layer_id) {
+                *rect = transform * *rect;
+            }
+        }
+        output
+    }
+
+    fn pointer_input(pos: egui::Pos2, pressed: bool) -> egui::RawInput {
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(800.0, 600.0),
+            )),
+            events: vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+            ..Default::default()
+        }
+    }
+
+    fn empty_input() -> egui::RawInput {
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(800.0, 600.0),
+            )),
+            ..Default::default()
+        }
+    }
+
+    fn hover_input(pos: egui::Pos2) -> egui::RawInput {
+        let mut input = empty_input();
+        input.events.push(egui::Event::PointerMoved(pos));
+        input
+    }
+
+    fn one_recent() -> Vec<RecentEntry> {
+        vec![RecentEntry::now("/archives/one.zip".into())]
+    }
+
+    fn assert_extract_password_retry_round_trip(
+        archive: &str,
+        destination: &str,
+        entries: Vec<String>,
+    ) {
+        let event = map_extract_error(
+            std::path::Path::new(archive),
+            std::path::Path::new(destination),
+            &entries,
+            supazip_core::ArchiverError::PasswordRequired,
+        );
+        let EngineEvent::PasswordRequired { target } = event else {
+            panic!("password error must request a retry");
+        };
+
+        let command = password_retry_command(PasswordSubmission {
+            target,
+            password: "secret".into(),
+        });
+        assert_eq!(
+            command,
+            PasswordRetryCommand::Extract {
+                request: ExtractRequest {
+                    archive: archive.into(),
+                    destination: destination.into(),
+                    entries,
+                },
+                password: "secret".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn toolbar_extract_all_password_retry_keeps_destination() {
+        assert_extract_password_retry_round_trip(
+            "/archives/locked.7z",
+            "/chosen/toolbar",
+            Vec::new(),
+        );
+    }
+
+    #[test]
+    fn context_extract_here_password_retry_keeps_entry_and_destination() {
+        assert_extract_password_retry_round_trip(
+            "/archives/locked.7z",
+            "/archives",
+            vec!["folder/one.txt".into()],
+        );
+    }
+
+    #[test]
+    fn context_extract_to_password_retry_keeps_entry_and_destination() {
+        assert_extract_password_retry_round_trip(
+            "/archives/locked.7z",
+            "/chosen/context",
+            vec!["folder/one.txt".into()],
+        );
+    }
+
+    #[test]
+    fn encrypted_test_retries_test_instead_of_open() {
+        let target = PasswordTarget::Test("/archives/locked.7z".into());
+        let event = map_engine_error(
+            target.clone(),
+            "test",
+            supazip_core::ArchiverError::WrongPassword,
+        );
+        let EngineEvent::PasswordRequired { target } = event else {
+            panic!("password error must request a retry");
+        };
+        assert_eq!(
+            password_retry_command(PasswordSubmission {
+                target,
+                password: "secret".into(),
+            }),
+            PasswordRetryCommand::Test {
+                path: "/archives/locked.7z".into(),
+                password: "secret".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn cancelled_list_reader_interrupts_backend_reads() {
+        let progress = Arc::new(ProgressState::new());
+        progress.cancel();
+        let mut reader =
+            CancellableReader::new(std::io::Cursor::new(b"archive bytes".to_vec()), progress);
+        let mut byte = [0_u8; 1];
+
+        let error = reader.read(&mut byte).expect_err("read must be cancelled");
+        assert_eq!(error.kind(), io::ErrorKind::Interrupted);
+    }
+
+    #[test]
+    fn cancelled_list_operation_returns_terminal_error_instead_of_listed() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let archive = temp.path().join("cancelled.zip");
+        std::fs::write(&archive, b"not reached because cancellation is pre-set")
+            .expect("write archive fixture");
+        let progress = Arc::new(ProgressState::new());
+        progress.cancel();
+
+        let event = run_list_blocking(&archive, None, &progress);
+
+        let EngineEvent::Error(message) = event else {
+            panic!("cancelled listing must terminate with an error event");
+        };
+        assert_eq!(message, "list: cancelled");
+    }
+
+    #[test]
+    fn selecting_recent_entry_closes_popup() {
+        let ctx = egui::Context::default();
+        let recent = one_recent();
+        let mut open = true;
+        let first = popup_frame(&ctx, empty_input(), &mut open, &recent);
+        let click = first.open_rects[0].0.center();
+
+        let _hovered = popup_frame(&ctx, hover_input(click), &mut open, &recent);
+        let pressed = popup_frame(&ctx, pointer_input(click, true), &mut open, &recent);
+        assert!(pressed.open_rects[0].0.contains(click));
+        let second = popup_frame(&ctx, pointer_input(click, false), &mut open, &recent);
+        assert!(second.open_rects[0].0.contains(click));
+
+        assert_eq!(
+            second.action,
+            Some(RecentPopupAction::Open(recent[0].path.clone()))
+        );
+        assert!(!open, "selecting an entry should dismiss the popup");
+    }
+
+    #[test]
+    fn clearing_recent_entries_closes_popup() {
+        let ctx = egui::Context::default();
+        let recent = one_recent();
+        let mut open = true;
+        let first = popup_frame(&ctx, empty_input(), &mut open, &recent);
+        let click = first.clear_rect.expect("clear button").0.center();
+
+        let _hovered = popup_frame(&ctx, hover_input(click), &mut open, &recent);
+        let pressed = popup_frame(&ctx, pointer_input(click, true), &mut open, &recent);
+        assert!(pressed.clear_rect.expect("clear button").0.contains(click));
+        let second = popup_frame(&ctx, pointer_input(click, false), &mut open, &recent);
+        assert!(second.clear_rect.expect("clear button").0.contains(click));
+
+        assert_eq!(second.action, Some(RecentPopupAction::Clear));
+        assert!(!open, "clearing entries should dismiss the popup");
+    }
+
+    fn create_zip_fixture(root: &std::path::Path) -> (PathBuf, PathBuf) {
+        let input = root.join("fixture.txt");
+        let archive = root.join("fixture.zip");
+        std::fs::write(&input, b"coverage fixture").expect("write input");
+        let writer: Box<dyn supazip_core::traits::WriteSeek> = Box::new(std::io::BufWriter::new(
+            std::fs::File::create(&archive).expect("create archive"),
+        ));
+        formats::get_backend("zip")
+            .expect("zip backend")
+            .create(
+                writer,
+                std::slice::from_ref(&input),
+                &supazip_core::traits::CreateOptions::default(),
+                None,
+                &supazip_core::NoOpProgress,
+                &Limits::default(),
+            )
+            .expect("create zip fixture");
+        (archive, input)
+    }
+
+    fn assert_error_contains(event: EngineEvent, expected: &str) {
+        let EngineEvent::Error(message) = event else {
+            panic!("expected error event");
+        };
+        assert!(
+            message.contains(expected),
+            "expected {message:?} to contain {expected:?}"
+        );
+    }
+
+    fn render_accessible_frame(
+        app: &mut App,
+        input: egui::RawInput,
+    ) -> (egui::Context, Vec<String>) {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        app.apply_theme(&ctx);
+        let output = ctx.run_ui(input, |ui| app.render(ui));
+        assert!(!output.shapes.is_empty(), "render should emit paint shapes");
+        let update = output
+            .platform_output
+            .accesskit_update
+            .expect("accessibility tree should be emitted");
+        let mut text = Vec::new();
+        for (_, node) in update.nodes {
+            if let Some(label) = node.label() {
+                text.push(label.to_owned());
+            }
+            if let Some(value) = node.value() {
+                text.push(value.to_owned());
+            }
+        }
+        (ctx, text)
+    }
+
+    fn assert_accessible_text(text: &[String], expected: &str) {
+        assert!(
+            text.iter().any(|value| value.contains(expected)),
+            "expected accessibility output to contain {expected:?}, got {text:#?}"
+        );
+    }
+
+    #[test]
+    fn headless_archive_and_settings_frame_exposes_widgets() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let (archive, _) = create_zip_fixture(temp.path());
+        let mut app = App::default();
+        {
+            let state = app.ctrl.state_mut();
+            state.open_archive = Some(supazip_gui::OpenArchive {
+                path: archive.clone(),
+                backend_name: "zip",
+                entries: vec![OpenEntry {
+                    name: "fixture.txt".into(),
+                    size: 16,
+                    encrypted: false,
+                }],
+            });
+        }
+        app.ctrl
+            .dispatch_menu_action(supazip_gui::MenuAction::Settings);
+
+        let (ctx, text) = render_accessible_frame(&mut app, empty_input());
+
+        assert_accessible_text(&text, "fixture.txt");
+        assert_accessible_text(&text, "Settings");
+        assert_accessible_text(&text, "Save");
+        assert_eq!(
+            app.clear_color_value(&ctx.global_style().visuals),
+            ctx.global_style()
+                .visuals
+                .panel_fill
+                .to_normalized_gamma_f32()
+        );
+    }
+
+    #[test]
+    fn headless_progress_frame_exposes_modal_widgets() {
+        let mut app = App::default();
+        let progress = app
+            .ctrl
+            .begin_progress_operation("coverage render")
+            .expect("progress slot");
+        progress.set_progress(1, 2);
+        progress.set_message("fixture.txt");
+
+        let (_, text) = render_accessible_frame(&mut app, empty_input());
+
+        assert_accessible_text(&text, "Working");
+        assert_accessible_text(&text, "1/2");
+        assert_accessible_text(&text, "Current: fixture.txt");
+        assert_accessible_text(&text, "Cancel");
+        assert!(!app.ctrl.password_dialog_ref().visible);
+    }
+
+    #[test]
+    fn headless_password_frame_exposes_modal_widgets() {
+        let mut app = App::default();
+        app.ctrl
+            .request_password(PasswordTarget::Open("locked.7z".into()));
+
+        let (_, text) = render_accessible_frame(&mut app, empty_input());
+
+        assert_accessible_text(&text, "Password required");
+        assert_accessible_text(&text, "Password");
+        assert_accessible_text(&text, "Show password");
+        assert_accessible_text(&text, "OK");
+        assert_accessible_text(&text, "Cancel");
+        assert!(app.ctrl.progress().is_none());
+    }
+
+    #[test]
+    fn headless_hovered_file_frame_exposes_drop_overlay() {
+        let mut app = App::default();
+        let mut input = empty_input();
+        input.hovered_files.push(egui::HoveredFile {
+            path: Some("hovered.zip".into()),
+            mime: "application/zip".into(),
+        });
+
+        let (_, text) = render_accessible_frame(&mut app, input);
+
+        assert_accessible_text(&text, "Drop archive to open");
+    }
+
+    #[test]
+    fn blocking_workers_cover_success_and_terminal_error_paths() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let (archive, input) = create_zip_fixture(temp.path());
+        let progress = Arc::new(ProgressState::new());
+        let limits = Limits::default();
+
+        assert_error_contains(
+            run_list_blocking(&temp.path().join("archive.unknown"), None, &progress),
+            "unsupported",
+        );
+        assert_error_contains(
+            run_list_blocking(&temp.path().join("missing.zip"), None, &progress),
+            "open:",
+        );
+        let EngineEvent::Listed { entries, .. } = run_list_blocking(&archive, None, &progress)
+        else {
+            panic!("fixture should list");
+        };
+        assert_eq!(entries.len(), 1);
+
+        let selected_out = temp.path().join("selected");
+        std::fs::create_dir(&selected_out).expect("create selected output");
+        let selected = vec![entries[0].name.clone()];
+        let event = run_extract_entries_blocking(
+            &archive,
+            &selected_out,
+            &selected,
+            None,
+            &progress,
+            &limits,
+        );
+        assert!(matches!(&event, EngineEvent::Done(_)), "{event:?}");
+        assert_eq!(
+            std::fs::read(selected_out.join(&selected[0])).expect("extracted fixture"),
+            b"coverage fixture"
+        );
+
+        let all_out = temp.path().join("all");
+        std::fs::create_dir(&all_out).expect("create all output");
+        assert!(matches!(
+            run_extract_blocking(&archive, &all_out, None, &progress, &limits),
+            EngineEvent::Done(_)
+        ));
+        assert_error_contains(
+            run_extract_blocking(
+                &temp.path().join("archive.unknown"),
+                &all_out,
+                None,
+                &progress,
+                &limits,
+            ),
+            "unsupported",
+        );
+        assert_error_contains(
+            run_extract_blocking(
+                &temp.path().join("missing.zip"),
+                &all_out,
+                None,
+                &progress,
+                &limits,
+            ),
+            "open:",
+        );
+
+        assert!(matches!(
+            run_test_blocking(&archive, None, &progress, &limits),
+            EngineEvent::Done(_)
+        ));
+        assert_error_contains(
+            run_test_blocking(
+                &temp.path().join("archive.unknown"),
+                None,
+                &progress,
+                &limits,
+            ),
+            "unsupported",
+        );
+        assert_error_contains(
+            run_test_blocking(&temp.path().join("missing.zip"), None, &progress, &limits),
+            "open:",
+        );
+
+        assert_error_contains(
+            run_create_blocking(
+                &temp.path().join("archive.unknown"),
+                std::slice::from_ref(&input),
+                None,
+                &progress,
+                &limits,
+            ),
+            "unsupported",
+        );
+        assert_error_contains(
+            run_create_blocking(
+                &temp.path().join("missing-parent").join("archive.zip"),
+                std::slice::from_ref(&input),
+                None,
+                &progress,
+                &limits,
+            ),
+            "create target:",
+        );
+        let created = temp.path().join("created.zip");
+        assert!(matches!(
+            run_create_blocking(
+                &created,
+                std::slice::from_ref(&input),
+                None,
+                &progress,
+                &limits,
+            ),
+            EngineEvent::Done(_)
+        ));
+    }
+
+    #[test]
+    fn non_password_engine_error_keeps_operation_prefix() {
+        assert_error_contains(
+            map_engine_error(
+                PasswordTarget::Open("bad.zip".into()),
+                "list",
+                supazip_core::ArchiverError::invalid("bad"),
+            ),
+            "list:",
+        );
     }
 }

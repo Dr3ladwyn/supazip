@@ -1,14 +1,24 @@
+use std::path::PathBuf;
 use std::process::Command;
 
-fn supazip_bin() -> String {
-    // When running under `cargo test`, the binary is built by the test harness.
-    // We use `cargo run` to ensure the latest code is compiled and executed.
-    String::from("cargo")
+fn supazip_bin() -> PathBuf {
+    if let Some(path) = option_env!("CARGO_BIN_EXE_supazip-cli") {
+        return PathBuf::from(path);
+    }
+    let mut path = std::env::current_exe().expect("current_exe");
+    path.pop();
+    path.pop();
+    path.push(if cfg!(windows) {
+        "supazip-cli.exe"
+    } else {
+        "supazip-cli"
+    });
+    path
 }
 
 fn run_completions(shell: &str) -> Vec<u8> {
     let output = Command::new(supazip_bin())
-        .args(["run", "-p", "supazip-cli", "--", "completions", shell])
+        .args(["completions", shell])
         .output()
         .expect("failed to execute supazip completions");
     assert!(

@@ -21,7 +21,11 @@ exclude = [
 ]
 
 [dependencies]
-sevenz-rust = { version = "0.6", features = ["aes256"] }
+# The original `sevenz-rust` crate is abandoned and all releases contain a
+# path-traversal vulnerability in its convenience extraction API. 0.20.x is
+# the maintained fork's newest line that still supports SupaZip's Rust 1.92
+# MSRV (0.21 requires Rust 1.93).
+sevenz-rust2 = { version = "0.20.2", features = ["aes256"] }
 # WS-B (m0.2.0): the zip crate 2.4 line ships native Zstandard compression
 # behind the `zstd` feature, so we enable that. Brotli is NOT exposed by
 # the zip crate, so we depend on the top-level `brotli` crate and SupaZip

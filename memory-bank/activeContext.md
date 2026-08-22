@@ -5,14 +5,31 @@
 - **Design system v2 runtime (2026-08-17):** `supazip-gui` maps
   `design/tokens.json` through `theme::Style::from_tokens`. Settings
   persist Dark / Light / System. Font embedding waits on the OFL TTF.
+- [2026-08-20 16:07:09] All findings from the design-v2 code review and both
+  independent follow-ups are remediated in the current worktree. A visible
+  password prompt now reserves the single-flight slot, both password and
+  progress dialogs are real `egui::Modal`s, and list/open owns the same
+  cancellable progress handle as extract/create/test. Exact encrypted retry
+  intent, toolbar accessibility, tested recent-popup dismissal, and borrowed
+  archive rendering remain covered by regression tests.
 - **v1.0.0** tagged at `aff00b6` (2026-06-07). All 6 milestones complete.
 - **1.0.1 Harden** is in progress on `master` (crate versions `1.0.1`, not tagged).
 - GitHub identity placeholder is **`your-org/supazip`** everywhere until a real
   repository exists. Do not invent a handle.
 - PeaZip is a vendored nested checkout: ignored via `/PeaZip/`, not a submodule.
-- Local toolchain: rustc 1.88.0 (MSRV 1.92). Core + CLI compile with
-  `--ignore-rust-version`. GUI crate cannot build locally; CI is the
-  authoritative gate.
+- Local toolchain: rustc 1.88.0 (MSRV 1.92). The full workspace, including
+  GUI, passes `fmt`, `clippy -D warnings`, and tests locally with
+  `--ignore-rust-version`; plain Cargo commands still reject the MSRV mismatch.
+- [2026-08-22 15:54:34] CI/CD and security hardening is complete in the
+  uncommitted changeset on `traycer/soft-lion`: `sevenz-rust2 0.20.2`, a
+  refreshed lockfile with clean RustSec/license gates, blocking fuzz smoke,
+  repaired coverage parsing, reproducible `--locked` CI commands, and balanced
+  PowerShell working directories. All 15 fuzz binaries are a persisted compile
+  gate, and both workspace and fuzz lockfiles are covered by audit/deny.
+  Authoritative validation uses the installed
+  Rust 1.92 rustup shim (the machine also has a standalone Rust 1.88 earlier in
+  its default `PATH`). Full local CI with GUI passed; final coverage is 82.49%
+  lines with 214 active tests passing and 1 expected ignored test.
 
 ## Current blockers
 

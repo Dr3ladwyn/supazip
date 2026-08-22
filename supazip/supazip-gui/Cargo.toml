@@ -13,7 +13,10 @@ publish = false
 
 [dependencies]
 supazip-core = { path = "../supazip-core" }
-eframe = "0.34"
+# Keep eframe's native backends while omitting `winit/default`: that default
+# enables the legacy Adwaita font stack and its unmaintained `ttf-parser`
+# dependency. Wayland and X11 are enabled explicitly below.
+eframe = { version = "0.34", default-features = false, features = ["accesskit", "default_fonts", "wayland", "web_screen_reader", "wgpu", "x11"] }
 rfd = "0.17"
 log = "0.4"
 tracing = "0.1"

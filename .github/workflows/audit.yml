@@ -2,9 +2,9 @@ name: security audit
 
 on:
   push:
-    branches: [master]
+    branches: [main, master]
   pull_request:
-    branches: [master]
+    branches: [main, master]
   schedule:
     - cron: '0 6 * * *' # daily at 06:00 UTC
 
@@ -14,16 +14,29 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: rustsec/audit-check@v2
+      - name: Audit workspace lockfile
+        uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          working-directory: supazip
+      - name: Audit fuzz lockfile
+        uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          working-directory: supazip/supazip-core/fuzz
 
   deny:
     name: cargo-deny
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      - name: Check workspace dependency graph
+        uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check
           manifest-path: supazip/Cargo.toml
+      - name: Check fuzz dependency graph
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+          manifest-path: supazip/supazip-core/fuzz/Cargo.toml

@@ -2,7 +2,7 @@
 //!
 //! The handler reads egui's raw input each frame: hovered files drive a
 //! transient overlay ("Drop archive to open") and a successful drop
-//! forwards every path that has an OS handle to
+//! forwards the first path that has an OS handle to
 //! [`AppController::open_archive`](crate::AppController::open_archive).
 //!
 //! `egui::Context` is required for both the input read and the
@@ -34,14 +34,14 @@ pub fn hovering_id() -> egui::Id {
     egui::Id::new("supazip.is_hovering_drop")
 }
 
-/// Drain the current frame's dropped files and forward every path that
+/// Drain the current frame's dropped files and forward the first path that
 /// carries an OS handle to [`AppController::open_archive`]. Also updates
 /// the `is_hovering_drop` flag based on the current `hovered_files`.
 ///
-/// Returns the list of paths that were actually forwarded to the
-/// controller. The caller is expected to spawn one worker per returned
-/// path (the controller is now in the busy state). The returned `Vec`
-/// is empty when nothing was dropped on this frame.
+/// Returns the path that was actually forwarded to the controller. At most
+/// one path is accepted because the controller enforces a single in-flight
+/// operation; any additional paths in the same drop are ignored. The returned
+/// `Vec` is empty when nothing was dropped on this frame.
 ///
 /// This function is the single integration point with egui's raw
 /// input; it intentionally performs no drawing — the view layer is
@@ -58,8 +58,8 @@ pub fn handle_dropped_files(ctx: &egui::Context, ctrl: &mut AppController) -> Ve
     opened_paths_from_dropped(&dropped, ctrl)
 }
 
-/// Pure helper: forward every `DroppedFile` that has a path into the
-/// controller. Extracted so it can be unit-tested without an `egui::Context`.
+/// Pure helper: offer dropped paths to the controller until its single worker
+/// slot is reserved. Extracted so it can be unit-tested without a window.
 pub fn opened_paths_from_dropped(
     dropped: &[egui::DroppedFile],
     ctrl: &mut AppController,
@@ -86,7 +86,7 @@ pub fn hovered_flag_from_hovered(hovered: &[egui::HoveredFile]) -> bool {
 /// overlay covers the whole screen rectangle at `Order::Foreground`
 /// so it sits above all panels.
 pub fn render_drop_overlay(ctx: &egui::Context) {
-    let screen = ctx.screen_rect();
+    let screen = ctx.content_rect();
     egui::Area::new(egui::Id::new("dnd_overlay"))
         .order(egui::Order::Foreground)
         .fixed_pos(screen.min)
@@ -148,6 +148,23 @@ mod tests {
         let opened = opened_paths_from_dropped(&dropped, &mut ctrl);
         assert!(opened.is_empty());
         assert!(!ctrl.state().busy);
+    }
+
+    #[test]
+    fn dropped_files_accept_only_one_operation_while_busy() {
+        let mut ctrl = AppController::default();
+        let dropped = ["first.zip", "second.zip"].map(|name| egui::DroppedFile {
+            path: Some(PathBuf::from(name)),
+            name: name.to_owned(),
+            mime: String::new(),
+            last_modified: None,
+            bytes: None,
+        });
+
+        let opened = opened_paths_from_dropped(&dropped, &mut ctrl);
+
+        assert_eq!(opened, vec![PathBuf::from("first.zip")]);
+        assert!(ctrl.state().busy);
     }
 
     /// `open_archive` rejects an empty path even when the caller

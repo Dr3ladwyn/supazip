@@ -35,7 +35,7 @@ $root = Resolve-Path (Join-Path (Split-Path -Parent $PSCommandPath) "..")
 $workspace = Join-Path $root.Path "supazip"
 Set-Location $workspace
 
-$NoFmt = $env:SUPPAZIP_CI_NO_FMT -eq "1"
+$NoFmt = $env:SUPAAZIP_CI_NO_FMT -eq "1"
 $NoClippy = $env:SUPAAZIP_CI_NO_CLIPPY -eq "1"
 $NoDoc = $env:SUPAAZIP_CI_NO_DOC -eq "1"
 $Workspace = $env:SUPAAZIP_CI_WORKSPACE -eq "1" -or $env:CI_BUILD_GUI -eq "1"
@@ -45,22 +45,22 @@ $cargoFlags = @()
 if ($Release) { $cargoFlags += "--release" }
 
 Write-Host "==> cargo build (core+cli)"
-& cargo build @cargoFlags -p supazip-core -p supazip-cli
+& cargo build @cargoFlags -p supazip-core -p supazip-cli --locked
 if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
 
 if ($Workspace) {
     Write-Host "==> cargo build (gui)"
-    & cargo build @cargoFlags -p supazip-gui
+    & cargo build @cargoFlags -p supazip-gui --locked
     if ($LASTEXITCODE -ne 0) { throw "cargo build gui failed" }
 }
 
 Write-Host "==> cargo test (core+cli)"
-& cargo test @cargoFlags -p supazip-core -p supazip-cli
+& cargo test @cargoFlags -p supazip-core -p supazip-cli --locked
 if ($LASTEXITCODE -ne 0) { throw "cargo test failed" }
 
 if ($Workspace) {
     Write-Host "==> cargo test (gui)"
-    & cargo test @cargoFlags -p supazip-gui
+    & cargo test @cargoFlags -p supazip-gui --locked
     if ($LASTEXITCODE -ne 0) { throw "cargo test gui failed" }
 }
 
@@ -81,23 +81,23 @@ if ($env:SUPAAZIP_CI_NO_DESIGN -ne "1") {
 
 if (-not $NoDoc) {
     Write-Host "==> cargo doc --no-deps"
-    & cargo doc @cargoFlags -p supazip-core -p supazip-cli --no-deps
+    & cargo doc @cargoFlags -p supazip-core -p supazip-cli --no-deps --locked
     if ($LASTEXITCODE -ne 0) { throw "cargo doc failed" }
 }
 
 if (-not $NoClippy) {
     Write-Host "==> cargo clippy"
-    & cargo clippy @cargoFlags -p supazip-core -p supazip-cli --no-deps -- -D warnings
+    & cargo clippy @cargoFlags -p supazip-core -p supazip-cli --no-deps --locked -- -D warnings
     if ($LASTEXITCODE -ne 0) { throw "cargo clippy failed" }
     if ($Workspace) {
-        & cargo clippy @cargoFlags -p supazip-gui --no-deps -- -D warnings
+        & cargo clippy @cargoFlags -p supazip-gui --no-deps --locked -- -D warnings
         if ($LASTEXITCODE -ne 0) { throw "cargo clippy gui failed" }
     }
 }
 
 if ($env:RUN_FUZZ_SMOKE -eq "1") {
     Write-Host "==> fuzz smoke (RUN_FUZZ_SMOKE set)"
-    Push-Location (Join-Path $workspace.Path "supazip-core")
+    Push-Location (Join-Path $workspace "supazip-core")
     try {
         & cargo +nightly fuzz run zip_list -- -max_total_time=60
         if ($LASTEXITCODE -ne 0) { throw "fuzz zip_list failed" }
