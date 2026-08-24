@@ -55,11 +55,31 @@ fn make_test_dir(n_entries: usize, entry_size: usize) -> (tempfile::TempDir, Vec
 /// Build an in-memory archive using `backend` and `paths`, returning the
 /// raw bytes. Used by the list / extract / test benches which need a
 /// reader.
+use std::sync::{Arc, Mutex};
+
+#[derive(Clone)]
+struct SharedWriter(Arc<Mutex<Cursor<Vec<u8>>>>);
+
+impl std::io::Write for SharedWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().write(buf)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.0.lock().unwrap().flush()
+    }
+}
+
+impl std::io::Seek for SharedWriter {
+    fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
+        self.0.lock().unwrap().seek(pos)
+    }
+}
+
 fn build_archive_bytes(backend: &dyn ArchiveFormat, paths: &[PathBuf]) -> Vec<u8> {
-    let cur = Cursor::new(Vec::<u8>::new());
+    let writer = SharedWriter(Arc::new(Mutex::new(Cursor::new(Vec::new()))));
     backend
         .create(
-            Box::new(cur),
+            Box::new(writer.clone()),
             paths,
             &CreateOptions::default(),
             None,
@@ -67,7 +87,8 @@ fn build_archive_bytes(backend: &dyn ArchiveFormat, paths: &[PathBuf]) -> Vec<u8
             &Limits::default(),
         )
         .expect("create fixture");
-    cur.into_inner()
+    let guard = writer.0.lock().unwrap();
+    guard.get_ref().clone()
 }
 
 // ---------------------------------------------------------------------------
