@@ -327,7 +327,6 @@ struct Bg {
 }
 
 #[derive(Debug, serde::Deserialize)]
-#[allow(dead_code)]
 struct Fg {
     #[serde(deserialize_with = "hex_color")]
     primary: Color32,
@@ -335,8 +334,6 @@ struct Fg {
     secondary: Color32,
     #[serde(deserialize_with = "hex_color")]
     muted: Color32,
-    #[serde(deserialize_with = "hex_color")]
-    inverse: Color32,
 }
 
 #[derive(Debug, serde::Deserialize)]
