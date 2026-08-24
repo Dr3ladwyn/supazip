@@ -108,7 +108,7 @@ proptest! {
         for (i, entry) in listed.iter().enumerate() {
             prop_assert_eq!(
                 &entry.name, &entries[i].0,
-                "entry {i}: listed name {:?} != expected {:?}",
+                "listed name {:?} != expected {:?}",
                 entry.name, entries[i].0,
             );
         }
