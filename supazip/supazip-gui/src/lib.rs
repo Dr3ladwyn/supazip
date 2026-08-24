@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! SupaZip GUI — a PeaZip-style archive manager for 7z and ZIP.
 //!
 //! The binary entry point in `main.rs` runs the eframe event loop. This
@@ -300,12 +301,12 @@ impl AppController {
                 // intent in the status line so tests can assert on state
                 // without a window.
                 self.state.busy = true;
-                self.state.status = format!(
-                    "extracting {} entr{} to {}…",
-                    entries.len(),
-                    if entries.len() == 1 { "y" } else { "ies" },
-                    dest.display()
-                );
+                let desc = if entries.len() == 1 {
+                    entries[0].clone()
+                } else {
+                    format!("{} entries", entries.len())
+                };
+                self.state.status = format!("extracting {desc} to {}…", dest.display());
             }
             EngineEvent::Done(msg) => {
                 self.state.busy = false;
@@ -705,6 +706,7 @@ mod tests {
         std::fs::write(&b, b"yy").expect("write b");
 
         let mut ctrl = AppController::default();
+        ctrl.clear_recent().ok();
         assert!(ctrl.state().recent.is_empty());
 
         ctrl.apply(EngineEvent::Listed {

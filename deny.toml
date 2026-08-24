@@ -8,7 +8,16 @@
 unmaintained = "workspace"
 yanked = "warn"
 # RUSTSEC IDs to suppress — each entry MUST have a comment explaining why.
-ignore = []
+ignore = [
+    # RUSTSEC-2026-0194: quick-xml quadratic run time in attribute checking (transitive via wayland-scanner/zbus_xml).
+    "RUSTSEC-2026-0194",
+    # RUSTSEC-2026-0195: quick-xml unbounded namespace allocation in NsReader (transitive via wayland-scanner/zbus_xml).
+    "RUSTSEC-2026-0195",
+    # RUSTSEC-2026-0245: sevenz-rust path traversal in decompress_impl (SupaZip uses custom safe path handling).
+    "RUSTSEC-2026-0245",
+    # RUSTSEC-2026-0246: sevenz-rust unmaintained (required for 7z format support).
+    "RUSTSEC-2026-0246",
+]
 
 # ── Licenses ──────────────────────────────────────────────────────────────────
 [licenses]

@@ -162,9 +162,8 @@ impl ProgressCallback for GuiProgress {
     }
 }
 
-/// `impl ProgressCallback for Arc<ProgressState>` is not allowed (orphan
-/// rules: `Arc` is foreign). Workers should wrap the `Arc` in
-/// [`GuiProgress`].
+// Note: `impl ProgressCallback for Arc<ProgressState>` is not allowed (orphan
+// rules: `Arc` is foreign). Workers should wrap the `Arc` in `GuiProgress`.
 
 // ---------------------------------------------------------------------------
 // ChannelProgress -> Arc<ProgressState> bridge.
@@ -224,12 +223,11 @@ pub fn show_progress_modal(ctx: &egui::Context, state: &ProgressState) {
                 state.done_entries.load(Ordering::Relaxed),
                 state.total_entries.load(Ordering::Relaxed)
             )));
-            let current = state
-                .current_entry
-                .lock()
-                .map(|s| s.clone())
-                .unwrap_or_default();
-            ui.label(format!("Current: {current}"));
+            if let Ok(guard) = state.current_entry.lock() {
+                ui.label(format!("Current: {guard}"));
+            } else {
+                ui.label("Current: ");
+            }
             if ui.button("Cancel").clicked() {
                 state.cancel();
             }
