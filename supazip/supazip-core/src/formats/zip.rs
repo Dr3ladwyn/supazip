@@ -243,6 +243,7 @@ impl ArchiveFormat for ZipBackend {
         let mut processed = 0u64;
 
         if entries.is_empty() {
+            let mut buffer = [0u8; 64 * 1024];
             // Extract all entries
             for i in 0..archive.len() {
                 if progress.is_cancelled() {
@@ -319,7 +320,6 @@ impl ArchiveFormat for ZipBackend {
 
                 let mut outfile = std::fs::File::create(&outpath).map_err(ArchiverError::Io)?;
 
-                let mut buffer = vec![0u8; 8192];
                 loop {
                     if progress.is_cancelled() {
                         return Err(ArchiverError::Cancelled);
@@ -342,6 +342,7 @@ impl ArchiveFormat for ZipBackend {
                 }
             }
         } else {
+            let mut buffer = [0u8; 64 * 1024];
             // Extract specific entries
             for entry_name in entries {
                 if progress.is_cancelled() {
@@ -418,7 +419,6 @@ impl ArchiveFormat for ZipBackend {
 
                 let mut outfile = std::fs::File::create(&outpath).map_err(ArchiverError::Io)?;
 
-                let mut buffer = vec![0u8; 8192];
                 loop {
                     if progress.is_cancelled() {
                         return Err(ArchiverError::Cancelled);
@@ -486,6 +486,7 @@ impl ArchiveFormat for ZipBackend {
             file_options = file_options.with_aes_encryption(AesMode::Aes256, pwd);
         }
 
+        let mut buffer = [0u8; 64 * 1024];
         for entry_path in entries {
             if progress.is_cancelled() {
                 return Err(ArchiverError::Cancelled);
@@ -537,7 +538,6 @@ impl ArchiveFormat for ZipBackend {
 
             let mut file = std::fs::File::open(entry_path).map_err(ArchiverError::Io)?;
 
-            let mut buffer = vec![0u8; 8192];
             loop {
                 if progress.is_cancelled() {
                     return Err(ArchiverError::Cancelled);
@@ -583,6 +583,7 @@ impl ArchiveFormat for ZipBackend {
             )));
         }
 
+        let mut buffer = [0u8; 64 * 1024];
         for i in 0..archive.len() {
             if progress.is_cancelled() {
                 return Err(ArchiverError::Cancelled);
@@ -602,7 +603,6 @@ impl ArchiveFormat for ZipBackend {
             progress.set_message(&name);
 
             // Read through the entire entry to verify CRC
-            let mut buffer = vec![0u8; 8192];
             let mut total_read = 0u64;
 
             loop {
