@@ -1,0 +1,7 @@
+[advisories]
+ignore = [
+    "RUSTSEC-2026-0194", # quick-xml: transitive dep via wayland-scanner
+    "RUSTSEC-2026-0195", # quick-xml: transitive dep via wayland-scanner
+    "RUSTSEC-2026-0245", # sevenz-rust: path traversal, no upstream fix available
+    "RUSTSEC-2026-0246", # sevenz-rust: unmaintained upstream
+]
