@@ -8,7 +8,12 @@
 unmaintained = "workspace"
 yanked = "warn"
 # RUSTSEC IDs to suppress — each entry MUST have a comment explaining why.
-ignore = []
+ignore = [
+    "RUSTSEC-2026-0194", # quick-xml quadratic run time, transitive dep via egui/wayland/zbus
+    "RUSTSEC-2026-0195", # quick-xml unbounded namespace allocation, transitive dep via egui/wayland/zbus
+    "RUSTSEC-2026-0245", # sevenz-rust path traversal vulnerability, repository deleted, no upstream fix
+    "RUSTSEC-2026-0246", # sevenz-rust unmaintained, repository deleted, no upstream fix
+]
 
 # ── Licenses ──────────────────────────────────────────────────────────────────
 [licenses]

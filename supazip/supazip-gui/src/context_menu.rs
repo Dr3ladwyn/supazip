@@ -7,6 +7,7 @@
 //! for the clipboard. None of those side effects are performed when the
 //! menu is just opened — they only fire when a menu item is clicked.
 
+#[allow(deprecated)]
 use std::fmt;
 use std::path::PathBuf;
 
@@ -48,6 +49,7 @@ pub enum EntryAction {
 }
 
 impl fmt::Display for EntryAction {
+    #[allow(deprecated)]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             EntryAction::ExtractHere(p) => write!(f, "ExtractHere({})", p.display()),
@@ -62,6 +64,7 @@ impl fmt::Display for EntryAction {
 /// user picked, if any. The caller decides what to do with it; this
 /// function does not touch the engine, the clipboard, or the file system
 /// beyond asking `rfd` for a destination folder.
+#[allow(deprecated)]
 pub fn show_entry_context_menu(ui: &mut egui::Ui, entry: &OpenEntry) -> Option<EntryContextAction> {
     let mut action: Option<EntryContextAction> = None;
 
@@ -108,6 +111,7 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
+    #[allow(deprecated)]
     fn sample_entry() -> OpenEntry {
         OpenEntry {
             name: "src/main.rs".to_string(),
@@ -117,6 +121,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn entry_action_extract_here_serializes() {
         let action = EntryContextAction {
             entry_name: "a.bin".to_string(),
@@ -134,6 +139,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn entry_action_copy_path_has_name() {
         let entry = sample_entry();
         let action = EntryContextAction {
@@ -147,6 +153,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn entry_action_test_entry_has_no_payload() {
         let action = EntryContextAction {
             entry_name: "deep/path/file.txt".to_string(),
@@ -157,6 +164,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn entry_action_extract_to_keeps_distinct_variant() {
         let a = EntryAction::ExtractTo(PathBuf::from("/var/tmp"));
         let b = EntryAction::ExtractHere(PathBuf::from("/var/tmp"));

@@ -19,6 +19,7 @@
 //! while `hovered_files` was non-empty on a prior frame and surfaces a
 //! status-bar hint pointing the user at the `File -> Open` shortcut.
 
+#[allow(deprecated)]
 use std::path::PathBuf;
 
 use eframe::egui;
@@ -30,6 +31,7 @@ use crate::AppController;
 /// layer. The view layer reads it during the same frame and renders the
 /// drop overlay; the flag is cleared at the start of every frame so a
 /// drop target that stops hovering is hidden within one frame.
+#[allow(deprecated)]
 pub fn hovering_id() -> egui::Id {
     egui::Id::new("supazip.is_hovering_drop")
 }
@@ -46,6 +48,7 @@ pub fn hovering_id() -> egui::Id {
 /// This function is the single integration point with egui's raw
 /// input; it intentionally performs no drawing — the view layer is
 /// responsible for the visual overlay.
+#[allow(deprecated)]
 pub fn handle_dropped_files(ctx: &egui::Context, ctrl: &mut AppController) -> Vec<PathBuf> {
     let dropped = ctx.input(|i| i.raw.dropped_files.clone());
     let hovered = ctx.input(|i| i.raw.hovered_files.clone());
@@ -60,6 +63,7 @@ pub fn handle_dropped_files(ctx: &egui::Context, ctrl: &mut AppController) -> Ve
 
 /// Pure helper: forward every `DroppedFile` that has a path into the
 /// controller. Extracted so it can be unit-tested without an `egui::Context`.
+#[allow(deprecated)]
 pub fn opened_paths_from_dropped(
     dropped: &[egui::DroppedFile],
     ctrl: &mut AppController,
@@ -77,6 +81,7 @@ pub fn opened_paths_from_dropped(
 
 /// Pure helper: translate the current `hovered_files` slice into the
 /// boolean flag the view layer reads. Extracted for unit testing.
+#[allow(deprecated)]
 pub fn hovered_flag_from_hovered(hovered: &[egui::HoveredFile]) -> bool {
     !hovered.is_empty()
 }
@@ -85,6 +90,7 @@ pub fn hovered_flag_from_hovered(hovered: &[egui::HoveredFile]) -> bool {
 /// frame. Called by the view layer when the hover flag is set. The
 /// overlay covers the whole screen rectangle at `Order::Foreground`
 /// so it sits above all panels.
+#[allow(deprecated)]
 pub fn render_drop_overlay(ctx: &egui::Context) {
     let screen = ctx.screen_rect();
     egui::Area::new(egui::Id::new("dnd_overlay"))
@@ -110,6 +116,7 @@ mod tests {
     /// A dropped-files slice with no entries forwards nothing to the
     /// controller and returns an empty `Vec`.
     #[test]
+    #[allow(deprecated)]
     fn dropped_files_empty_returns_empty() {
         let mut ctrl = AppController::default();
         let opened = opened_paths_from_dropped(&[], &mut ctrl);
@@ -122,6 +129,7 @@ mod tests {
     /// returns `true` (the actual `egui::Context` round-trip is covered
     /// by integration tests, not by unit tests).
     #[test]
+    #[allow(deprecated)]
     fn is_hovering_drop_set_when_hovered() {
         let hovered: Vec<egui::HoveredFile> = vec![egui::HoveredFile {
             path: None,
@@ -136,6 +144,7 @@ mod tests {
     /// not entered into the busy state and nothing is returned to the
     /// caller.
     #[test]
+    #[allow(deprecated)]
     fn dropped_file_without_path_is_ignored() {
         let mut ctrl = AppController::default();
         let dropped = vec![egui::DroppedFile {
@@ -155,6 +164,7 @@ mod tests {
     /// egui's `DroppedFile` is `Option<PathBuf>` and we already filter
     /// `None` above).
     #[test]
+    #[allow(deprecated)]
     fn open_archive_rejects_empty_path() {
         let mut ctrl = AppController::default();
         assert!(!ctrl.open_archive(PathBuf::new()));
