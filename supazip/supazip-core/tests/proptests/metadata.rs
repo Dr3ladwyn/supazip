@@ -109,7 +109,7 @@ proptest! {
             prop_assert_eq!(
                 &entry.name, &entries[i].0,
                 "entry {i}: listed name {:?} != expected {:?}",
-                entry.name, entries[i].0,
+                entry.name, entries[i].0, i = i
             );
         }
     }
