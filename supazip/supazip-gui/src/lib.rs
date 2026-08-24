@@ -775,7 +775,11 @@ mod tests {
         });
         let s = ctrl.state();
         assert!(s.busy);
-        assert!(s.status.contains("extracting 1 entry"), "status: {}", s.status);
+        assert!(
+            s.status.contains("extracting 1 entry"),
+            "status: {}",
+            s.status
+        );
         assert!(s.status.contains("/tmp/out"), "status: {}", s.status);
     }
 
