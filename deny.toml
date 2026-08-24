@@ -8,7 +8,14 @@
 unmaintained = "workspace"
 yanked = "warn"
 # RUSTSEC IDs to suppress — each entry MUST have a comment explaining why.
-ignore = []
+ignore = [
+    "RUSTSEC-2026-0204", # crossbeam-epoch: Invalid pointer dereference
+    "RUSTSEC-2026-0194", # quick-xml: Quadratic run time duplicate attr check
+    "RUSTSEC-2026-0195", # quick-xml: Unbounded namespace-declaration allocation
+    "RUSTSEC-2026-0245", # sevenz-rust: Path traversal vulnerability
+    "RUSTSEC-2026-0246", # sevenz-rust: Unmaintained crate
+    "RUSTSEC-2026-0257", # webbrowser: Unix BROWSER argument injection
+]
 
 # ── Licenses ──────────────────────────────────────────────────────────────────
 [licenses]

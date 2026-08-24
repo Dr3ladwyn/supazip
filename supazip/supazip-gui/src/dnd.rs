@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! Drag-and-drop handler for the main window.
 //!
 //! The handler reads egui's raw input each frame: hovered files drive a

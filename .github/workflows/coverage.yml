@@ -1,11 +1,9 @@
 name: coverage
-
 on:
   push:
     branches: [master]
   pull_request:
     branches: [master]
-
 jobs:
   coverage:
     name: Code coverage
@@ -23,8 +21,7 @@ jobs:
       - name: Run coverage
         working-directory: supazip
         run: |
-          cargo llvm-cov --workspace --locked --lcov --output-path lcov.info -- \
-            --ignore-rust-version
+          cargo llvm-cov --workspace --locked --lcov --output-path lcov.info
       - name: Upload to Codecov
         uses: codecov/codecov-action@v4
         with:

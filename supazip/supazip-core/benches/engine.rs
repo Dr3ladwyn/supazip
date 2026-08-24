@@ -56,10 +56,12 @@ fn make_test_dir(n_entries: usize, entry_size: usize) -> (tempfile::TempDir, Vec
 /// raw bytes. Used by the list / extract / test benches which need a
 /// reader.
 fn build_archive_bytes(backend: &dyn ArchiveFormat, paths: &[PathBuf]) -> Vec<u8> {
-    let cur = Cursor::new(Vec::<u8>::new());
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let archive_path = tmp.path().join("bench.archive");
+    let file = std::fs::File::create(&archive_path).expect("create file");
     backend
         .create(
-            Box::new(cur),
+            Box::new(std::io::BufWriter::new(file)),
             paths,
             &CreateOptions::default(),
             None,
@@ -67,7 +69,7 @@ fn build_archive_bytes(backend: &dyn ArchiveFormat, paths: &[PathBuf]) -> Vec<u8
             &Limits::default(),
         )
         .expect("create fixture");
-    cur.into_inner()
+    std::fs::read(archive_path).expect("read fixture")
 }
 
 // ---------------------------------------------------------------------------

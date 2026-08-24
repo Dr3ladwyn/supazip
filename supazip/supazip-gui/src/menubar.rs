@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! Native menu bar (WS-F, milestone 0.3.0).
 //!
 //! The bar is built with eframe's `with_menu` API: on macOS the menu lives
