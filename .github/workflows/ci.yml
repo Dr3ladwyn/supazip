@@ -47,7 +47,7 @@ jobs:
 
       - name: cargo clippy
         working-directory: supazip
-        run: cargo clippy -p supazip-core -p supazip-cli --no-deps -- -D warnings --locked
+        run: cargo clippy -p supazip-core -p supazip-cli --no-deps --locked -- -D warnings
 
       - name: cargo doc
         working-directory: supazip

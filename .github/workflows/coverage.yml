@@ -26,9 +26,10 @@ jobs:
           cargo llvm-cov --workspace --locked --lcov --output-path lcov.info
       - name: Upload to Codecov
         uses: codecov/codecov-action@v4
+        continue-on-error: true
         with:
           files: supazip/lcov.info
-          fail_ci_if_error: true
+          fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Check threshold (80%)
         working-directory: supazip
