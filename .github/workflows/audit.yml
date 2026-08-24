@@ -17,6 +17,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo install cargo-audit --locked
       - run: cargo audit
+        working-directory: supazip
 
   deny:
     name: cargo-deny
