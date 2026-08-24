@@ -3,7 +3,7 @@
 //! The bar is built with eframe's `with_menu` API: on macOS the menu lives
 //! in the system menu bar at the top of the screen, on Windows / Linux it
 //! is rendered in-app at the top of the window. The widgets are the
-//! `egui::menu::bar` helper inside an `egui::TopBottomPanel::top` slot,
+//! `egui::menu::bar` helper inside an `egui::Panel::top` slot,
 //! which is the form the milestone plan prescribes.
 //!
 //! ## Architecture
@@ -87,39 +87,40 @@ pub enum MenuActionOutcome {
 pub fn show_menu_bar(ctx: &egui::Context, ctrl: &mut AppController) -> Vec<MenuAction> {
     let mut actions = Vec::new();
 
-    egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
-        egui::menu::bar(ui, |ui| {
+    #[allow(deprecated)]
+    egui::Panel::top("menu_bar").show(ctx, |ui| {
+        egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| {
                 if ui.button("Open\u{2026}    Ctrl+O").clicked() {
                     actions.push(MenuAction::Open);
-                    ui.close_menu();
+                    ui.close();
                 }
                 if ui.button("Close    Ctrl+W").clicked() {
                     actions.push(MenuAction::Close);
-                    ui.close_menu();
+                    ui.close();
                 }
                 ui.separator();
                 if ui.button("Extract\u{2026}    Ctrl+E").clicked() {
                     actions.push(MenuAction::Extract);
-                    ui.close_menu();
+                    ui.close();
                 }
                 if ui.button("Create\u{2026}").clicked() {
                     actions.push(MenuAction::Create);
-                    ui.close_menu();
+                    ui.close();
                 }
                 if ui.button("Test integrity").clicked() {
                     actions.push(MenuAction::Test);
-                    ui.close_menu();
+                    ui.close();
                 }
                 ui.separator();
                 if ui.button("Settings\u{2026}").clicked() {
                     actions.push(MenuAction::Settings);
-                    ui.close_menu();
+                    ui.close();
                 }
                 ui.separator();
                 if ui.button("Quit    Ctrl+Q").clicked() {
                     actions.push(MenuAction::Quit);
-                    ui.close_menu();
+                    ui.close();
                 }
             });
             ui.menu_button("Edit", |ui| {
@@ -131,7 +132,7 @@ pub fn show_menu_bar(ctx: &egui::Context, ctrl: &mut AppController) -> Vec<MenuA
                     .add_enabled(false, egui::Button::new("Copy path (use context menu)"))
                     .clicked()
                 {
-                    ui.close_menu();
+                    ui.close();
                 }
             });
             ui.menu_button("View", |ui| {
@@ -140,7 +141,7 @@ pub fn show_menu_bar(ctx: &egui::Context, ctrl: &mut AppController) -> Vec<MenuA
             ui.menu_button("Help", |ui| {
                 if ui.button("About    F1").clicked() {
                     actions.push(MenuAction::About);
-                    ui.close_menu();
+                    ui.close();
                 }
             });
         });
