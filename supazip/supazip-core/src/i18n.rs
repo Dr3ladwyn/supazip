@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Locale {
@@ -19,6 +18,7 @@ impl Locale {
 }
 
 #[derive(Debug, Clone)]
+#[derive(PartialEq)]
 pub enum PluralForm {
     One,
     Few,
