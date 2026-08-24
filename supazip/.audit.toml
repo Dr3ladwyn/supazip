@@ -1,0 +1,5 @@
+[advisories]
+ignore = [
+    "RUSTSEC-2026-0245", # sevenz-rust: path traversal, no upstream fix available
+    "RUSTSEC-2026-0246", # sevenz-rust: unmaintained upstream
+]

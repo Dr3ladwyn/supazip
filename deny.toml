@@ -8,7 +8,10 @@
 unmaintained = "workspace"
 yanked = "warn"
 # RUSTSEC IDs to suppress — each entry MUST have a comment explaining why.
-ignore = []
+ignore = [
+    "RUSTSEC-2026-0245", # sevenz-rust: path traversal, no upstream fix available
+    "RUSTSEC-2026-0246", # sevenz-rust: unmaintained upstream
+]
 
 # ── Licenses ──────────────────────────────────────────────────────────────────
 [licenses]

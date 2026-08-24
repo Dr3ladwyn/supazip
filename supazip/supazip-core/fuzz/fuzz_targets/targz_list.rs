@@ -15,5 +15,5 @@ fuzz_target!(|data: &[u8]| {
         None => return,
     };
     let limits = Limits::default();
-    let _ = backend.list(Box::new(data), None, &limits);
+    let _ = backend.list(Box::new(std::io::Cursor::new(data)), None, &limits);
 });
