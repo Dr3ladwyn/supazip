@@ -8,7 +8,12 @@
 unmaintained = "workspace"
 yanked = "warn"
 # RUSTSEC IDs to suppress — each entry MUST have a comment explaining why.
-ignore = []
+ignore = [
+    # RUSTSEC-2026-0245: Path traversal vulnerability in sevenz-rust. Handled in supazip-core by sanitizing/validating extract target paths.
+    "RUSTSEC-2026-0245",
+    # RUSTSEC-2026-0246: sevenz-rust unmaintained repository. Used as 7z backend until migration.
+    "RUSTSEC-2026-0246",
+]
 
 # ── Licenses ──────────────────────────────────────────────────────────────────
 [licenses]
