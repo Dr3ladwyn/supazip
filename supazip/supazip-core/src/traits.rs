@@ -490,14 +490,40 @@ mod tests {
     }
 
     #[test]
-    fn limits_unrestricted_helper() {
-        let l = Limits {
+    fn limits_is_unrestricted() {
+        // Unrestricted when archive size, entry count, and entry size are all MAX.
+        let unrestricted = Limits {
             max_archive_size: u64::MAX,
             max_entry_count: usize::MAX,
             max_entry_size: u64::MAX,
             max_compression_ratio: 0,
         };
-        assert!(l.is_unrestricted());
+        assert!(unrestricted.is_unrestricted());
+
+        // Default / new limits are restricted.
+        assert!(!Limits::default().is_unrestricted());
+        assert!(!Limits::new().is_unrestricted());
+
+        // Restricted if max_archive_size is not u64::MAX.
+        let restricted_archive_size = Limits {
+            max_archive_size: u64::MAX - 1,
+            ..unrestricted
+        };
+        assert!(!restricted_archive_size.is_unrestricted());
+
+        // Restricted if max_entry_count is not usize::MAX.
+        let restricted_entry_count = Limits {
+            max_entry_count: usize::MAX - 1,
+            ..unrestricted
+        };
+        assert!(!restricted_entry_count.is_unrestricted());
+
+        // Restricted if max_entry_size is not u64::MAX.
+        let restricted_entry_size = Limits {
+            max_entry_size: u64::MAX - 1,
+            ..unrestricted
+        };
+        assert!(!restricted_entry_size.is_unrestricted());
     }
 
     #[test]
