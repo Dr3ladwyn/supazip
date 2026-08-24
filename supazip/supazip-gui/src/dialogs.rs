@@ -136,10 +136,12 @@ mod tests {
 
     #[test]
     fn open_clears_previous_state() {
-        let mut s = PasswordDialogState::default();
-        s.password = "stale".into();
-        s.error = Some("old error".into());
-        s.show_password = true;
+        let mut s = PasswordDialogState {
+            password: "stale".into(),
+            error: Some("old error".into()),
+            show_password: true,
+            ..Default::default()
+        };
         s.open(PasswordTarget::Extract(std::path::PathBuf::from("/a.7z")));
         assert!(s.visible);
         assert!(s.password.is_empty());
@@ -153,11 +155,13 @@ mod tests {
 
     #[test]
     fn close_wipes_password_and_clears_target() {
-        let mut s = PasswordDialogState::default();
-        s.password = "hunter2".into();
-        s.error = Some("wrong".into());
-        s.target = Some(PasswordTarget::Create(std::path::PathBuf::from("/x.zip")));
-        s.visible = true;
+        let mut s = PasswordDialogState {
+            password: "hunter2".into(),
+            error: Some("wrong".into()),
+            target: Some(PasswordTarget::Create(std::path::PathBuf::from("/x.zip"))),
+            visible: true,
+            ..Default::default()
+        };
         s.close();
         assert!(!s.visible);
         assert!(s.password.is_empty());

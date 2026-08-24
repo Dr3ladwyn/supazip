@@ -106,10 +106,12 @@ proptest! {
         // (The ZIP format stores entries in insertion order; we verify
         // that the listing preserves that order.)
         for (i, entry) in listed.iter().enumerate() {
+            let expected_name = &entries[i].0;
+            let actual_name = &entry.name;
             prop_assert_eq!(
-                &entry.name, &entries[i].0,
-                "entry {i}: listed name {:?} != expected {:?}",
-                entry.name, entries[i].0,
+                actual_name, expected_name,
+                "entry {}: listed name {:?} != expected {:?}",
+                i, actual_name, expected_name,
             );
         }
     }

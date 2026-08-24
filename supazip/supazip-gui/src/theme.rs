@@ -289,8 +289,8 @@ impl DesignTokens {
 }
 
 #[derive(Debug, serde::Deserialize)]
-#[allow(dead_code)]
 struct Meta {
+    #[allow(dead_code)]
     version: String,
 }
 
@@ -327,7 +327,6 @@ struct Bg {
 }
 
 #[derive(Debug, serde::Deserialize)]
-#[allow(dead_code)]
 struct Fg {
     #[serde(deserialize_with = "hex_color")]
     primary: Color32,
@@ -335,6 +334,7 @@ struct Fg {
     secondary: Color32,
     #[serde(deserialize_with = "hex_color")]
     muted: Color32,
+    #[allow(dead_code)]
     #[serde(deserialize_with = "hex_color")]
     inverse: Color32,
 }
@@ -350,14 +350,15 @@ struct Accent {
 }
 
 #[derive(Debug, serde::Deserialize)]
-#[allow(dead_code)]
 struct Semantic {
+    #[allow(dead_code)]
     #[serde(deserialize_with = "hex_color")]
     success: Color32,
     #[serde(deserialize_with = "hex_color")]
     warning: Color32,
     #[serde(deserialize_with = "hex_color")]
     danger: Color32,
+    #[allow(dead_code)]
     #[serde(deserialize_with = "hex_color")]
     info: Color32,
 }

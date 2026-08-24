@@ -18,6 +18,7 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
+
   deny:
     name: cargo-deny
     runs-on: ubuntu-latest
