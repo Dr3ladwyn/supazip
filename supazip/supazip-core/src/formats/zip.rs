@@ -319,7 +319,7 @@ impl ArchiveFormat for ZipBackend {
 
                 let mut outfile = std::fs::File::create(&outpath).map_err(ArchiverError::Io)?;
 
-                let mut buffer = vec![0u8; 8192];
+                let mut buffer = vec![0u8; 65536];
                 loop {
                     if progress.is_cancelled() {
                         return Err(ArchiverError::Cancelled);
@@ -418,7 +418,7 @@ impl ArchiveFormat for ZipBackend {
 
                 let mut outfile = std::fs::File::create(&outpath).map_err(ArchiverError::Io)?;
 
-                let mut buffer = vec![0u8; 8192];
+                let mut buffer = vec![0u8; 65536];
                 loop {
                     if progress.is_cancelled() {
                         return Err(ArchiverError::Cancelled);
@@ -537,7 +537,7 @@ impl ArchiveFormat for ZipBackend {
 
             let mut file = std::fs::File::open(entry_path).map_err(ArchiverError::Io)?;
 
-            let mut buffer = vec![0u8; 8192];
+            let mut buffer = vec![0u8; 65536];
             loop {
                 if progress.is_cancelled() {
                     return Err(ArchiverError::Cancelled);
@@ -602,7 +602,7 @@ impl ArchiveFormat for ZipBackend {
             progress.set_message(&name);
 
             // Read through the entire entry to verify CRC
-            let mut buffer = vec![0u8; 8192];
+            let mut buffer = vec![0u8; 65536];
             let mut total_read = 0u64;
 
             loop {

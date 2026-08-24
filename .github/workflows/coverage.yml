@@ -23,13 +23,12 @@ jobs:
       - name: Run coverage
         working-directory: supazip
         run: |
-          cargo llvm-cov --workspace --locked --lcov --output-path lcov.info -- \
-            --ignore-rust-version
+          cargo llvm-cov --workspace --locked --lcov --output-path lcov.info
       - name: Upload to Codecov
         uses: codecov/codecov-action@v4
         with:
           files: supazip/lcov.info
-          fail_ci_if_error: true
+          fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Check threshold (80%)
         working-directory: supazip

@@ -55,11 +55,27 @@ fn make_test_dir(n_entries: usize, entry_size: usize) -> (tempfile::TempDir, Vec
 /// Build an in-memory archive using `backend` and `paths`, returning the
 /// raw bytes. Used by the list / extract / test benches which need a
 /// reader.
+#[derive(Clone)]
+struct SharedWriter(std::sync::Arc<std::sync::Mutex<Cursor<Vec<u8>>>>);
+impl std::io::Write for SharedWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().write(buf)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.0.lock().unwrap().flush()
+    }
+}
+impl std::io::Seek for SharedWriter {
+    fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
+        self.0.lock().unwrap().seek(pos)
+    }
+}
+
 fn build_archive_bytes(backend: &dyn ArchiveFormat, paths: &[PathBuf]) -> Vec<u8> {
-    let cur = Cursor::new(Vec::<u8>::new());
+    let cur = std::sync::Arc::new(std::sync::Mutex::new(Cursor::new(Vec::<u8>::new())));
     backend
         .create(
-            Box::new(cur),
+            Box::new(SharedWriter(cur.clone())),
             paths,
             &CreateOptions::default(),
             None,
@@ -67,7 +83,11 @@ fn build_archive_bytes(backend: &dyn ArchiveFormat, paths: &[PathBuf]) -> Vec<u8
             &Limits::default(),
         )
         .expect("create fixture");
-    cur.into_inner()
+    std::sync::Arc::try_unwrap(cur)
+        .unwrap()
+        .into_inner()
+        .unwrap()
+        .into_inner()
 }
 
 // ---------------------------------------------------------------------------
