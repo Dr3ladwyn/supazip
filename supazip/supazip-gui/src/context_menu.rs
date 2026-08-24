@@ -62,6 +62,7 @@ impl fmt::Display for EntryAction {
 /// user picked, if any. The caller decides what to do with it; this
 /// function does not touch the engine, the clipboard, or the file system
 /// beyond asking `rfd` for a destination folder.
+#[allow(deprecated)]
 pub fn show_entry_context_menu(ui: &mut egui::Ui, entry: &OpenEntry) -> Option<EntryContextAction> {
     let mut action: Option<EntryContextAction> = None;
 
@@ -72,7 +73,7 @@ pub fn show_entry_context_menu(ui: &mut egui::Ui, entry: &OpenEntry) -> Option<E
                 kind: EntryAction::ExtractHere(dir),
             });
         }
-        ui.close_menu();
+        ui.close();
     }
     if ui.button("Extract to\u{2026}").clicked() {
         if let Some(dir) = rfd::FileDialog::new().pick_folder() {
@@ -81,14 +82,14 @@ pub fn show_entry_context_menu(ui: &mut egui::Ui, entry: &OpenEntry) -> Option<E
                 kind: EntryAction::ExtractTo(dir),
             });
         }
-        ui.close_menu();
+        ui.close();
     }
     if ui.button("Test entry").clicked() {
         action = Some(EntryContextAction {
             entry_name: entry.name.clone(),
             kind: EntryAction::TestEntry,
         });
-        ui.close_menu();
+        ui.close();
     }
     ui.separator();
     if ui.button("Copy path").clicked() {
@@ -97,7 +98,7 @@ pub fn show_entry_context_menu(ui: &mut egui::Ui, entry: &OpenEntry) -> Option<E
             entry_name: entry.name.clone(),
             kind: EntryAction::CopyPath,
         });
-        ui.close_menu();
+        ui.close();
     }
 
     action

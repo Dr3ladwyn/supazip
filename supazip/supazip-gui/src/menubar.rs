@@ -84,6 +84,7 @@ pub enum MenuActionOutcome {
 /// frame, including keyboard accelerators. Pure with respect to the
 /// controller: `ctrl.show_debug` is flipped in place through the View
 /// menu checkbox, everything else is reported through the return value.
+#[allow(deprecated)]
 pub fn show_menu_bar(ctx: &egui::Context, ctrl: &mut AppController) -> Vec<MenuAction> {
     let mut actions = Vec::new();
 

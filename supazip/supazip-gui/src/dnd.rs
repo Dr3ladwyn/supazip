@@ -30,6 +30,7 @@ use crate::AppController;
 /// layer. The view layer reads it during the same frame and renders the
 /// drop overlay; the flag is cleared at the start of every frame so a
 /// drop target that stops hovering is hidden within one frame.
+#[allow(deprecated)]
 pub fn hovering_id() -> egui::Id {
     egui::Id::new("supazip.is_hovering_drop")
 }
@@ -46,6 +47,7 @@ pub fn hovering_id() -> egui::Id {
 /// This function is the single integration point with egui's raw
 /// input; it intentionally performs no drawing — the view layer is
 /// responsible for the visual overlay.
+#[allow(deprecated)]
 pub fn handle_dropped_files(ctx: &egui::Context, ctrl: &mut AppController) -> Vec<PathBuf> {
     let dropped = ctx.input(|i| i.raw.dropped_files.clone());
     let hovered = ctx.input(|i| i.raw.hovered_files.clone());
@@ -60,6 +62,7 @@ pub fn handle_dropped_files(ctx: &egui::Context, ctrl: &mut AppController) -> Ve
 
 /// Pure helper: forward every `DroppedFile` that has a path into the
 /// controller. Extracted so it can be unit-tested without an `egui::Context`.
+#[allow(deprecated)]
 pub fn opened_paths_from_dropped(
     dropped: &[egui::DroppedFile],
     ctrl: &mut AppController,
@@ -77,6 +80,7 @@ pub fn opened_paths_from_dropped(
 
 /// Pure helper: translate the current `hovered_files` slice into the
 /// boolean flag the view layer reads. Extracted for unit testing.
+#[allow(deprecated)]
 pub fn hovered_flag_from_hovered(hovered: &[egui::HoveredFile]) -> bool {
     !hovered.is_empty()
 }
@@ -85,8 +89,9 @@ pub fn hovered_flag_from_hovered(hovered: &[egui::HoveredFile]) -> bool {
 /// frame. Called by the view layer when the hover flag is set. The
 /// overlay covers the whole screen rectangle at `Order::Foreground`
 /// so it sits above all panels.
+#[allow(deprecated)]
 pub fn render_drop_overlay(ctx: &egui::Context) {
-    let screen = ctx.screen_rect();
+    let screen = ctx.content_rect();
     egui::Area::new(egui::Id::new("dnd_overlay"))
         .order(egui::Order::Foreground)
         .fixed_pos(screen.min)
