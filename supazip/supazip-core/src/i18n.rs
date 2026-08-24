@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Locale {
     En,
@@ -8,6 +6,7 @@ pub enum Locale {
 }
 
 impl Locale {
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
             "en" => Some(Self::En),
@@ -18,7 +17,7 @@ impl Locale {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PluralForm {
     One,
     Few,

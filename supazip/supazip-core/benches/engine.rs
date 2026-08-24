@@ -1,45 +1,29 @@
-//! Criterion benchmarks for the SupaZip engine.
-//!
-//! WS-H (m0.3.0): exercise the five backends (`zip`, `7z`, `tar`, `tar.gz`,
-//! `tar.xz`) over the three hot operations (`list`, `extract`, `create`)
-//! plus a `test` smoke pass per backend. Sizes: 10 / 100 / 1 000 entries
-//! at 256 B per entry for `list` / `extract` / `test`, and a single
-//! 100-entry × 1 KiB fixture for `create`. The fixture is built once per
-//! group and re-used; the `b.iter` closure is the only thing that runs
-//! inside the timed loop.
-//!
-//! Run a baseline:
-//!
-//! ```text
-//! cargo bench -p supazip-core --bench engine -- --save-baseline m0.3.0
-//! ```
-//!
-//! Compare against it:
-//!
-//! ```text
-//! cargo bench -p supazip-core --bench engine -- --baseline m0.3.0
-//! ```
-//!
-//! See `docs/benchmarks.md` for the full workflow and the CI job
-//! definition.
-
-use std::io::Cursor;
+use std::io::{Cursor, Seek, SeekFrom, Write};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use supazip_core::{
-    formats::{SevenZBackend, TarBackend, TarGzBackend, TarXzBackend, ZipBackend},
-    ArchiveFormat, CreateOptions, Limits, NoOpProgress,
-};
+use supazip_core::formats::{SevenZBackend, TarBackend, TarGzBackend, TarXzBackend, ZipBackend};
+use supazip_core::traits::{ArchiveFormat, CreateOptions, Limits, NoOpProgress};
 
-// ---------------------------------------------------------------------------
-// Fixture helpers
-// ---------------------------------------------------------------------------
+#[derive(Clone, Default)]
+struct SharedCursor(Arc<Mutex<Cursor<Vec<u8>>>>);
 
-/// Build a scratch directory populated with `n_entries` files of
-/// `entry_size` bytes each. Returns the owning `TempDir` (so it stays
-/// alive for the duration of the bench) plus the file paths in stable
-/// order.
+impl Write for SharedCursor {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().write(buf)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.0.lock().unwrap().flush()
+    }
+}
+
+impl Seek for SharedCursor {
+    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+        self.0.lock().unwrap().seek(pos)
+    }
+}
+
 fn make_test_dir(n_entries: usize, entry_size: usize) -> (tempfile::TempDir, Vec<PathBuf>) {
     let dir = tempfile::tempdir().expect("tempdir");
     let mut paths = Vec::with_capacity(n_entries);
@@ -52,14 +36,11 @@ fn make_test_dir(n_entries: usize, entry_size: usize) -> (tempfile::TempDir, Vec
     (dir, paths)
 }
 
-/// Build an in-memory archive using `backend` and `paths`, returning the
-/// raw bytes. Used by the list / extract / test benches which need a
-/// reader.
 fn build_archive_bytes(backend: &dyn ArchiveFormat, paths: &[PathBuf]) -> Vec<u8> {
-    let cur = Cursor::new(Vec::<u8>::new());
+    let buf = SharedCursor::default();
     backend
         .create(
-            Box::new(cur),
+            Box::new(buf.clone()),
             paths,
             &CreateOptions::default(),
             None,
@@ -67,12 +48,9 @@ fn build_archive_bytes(backend: &dyn ArchiveFormat, paths: &[PathBuf]) -> Vec<u8
             &Limits::default(),
         )
         .expect("create fixture");
-    cur.into_inner()
+    let inner = buf.0.lock().unwrap().get_ref().clone();
+    inner
 }
-
-// ---------------------------------------------------------------------------
-// create — one bench per backend at a single 100 × 1 KiB fixture
-// ---------------------------------------------------------------------------
 
 fn bench_create(c: &mut Criterion) {
     let mut group = c.benchmark_group("create");

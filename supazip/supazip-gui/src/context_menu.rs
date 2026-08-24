@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! Right-click context menu for an entry in the archive file list.
 //!
 //! The menu is rendered with `egui::Response::context_menu` from the
