@@ -8,7 +8,16 @@
 unmaintained = "workspace"
 yanked = "warn"
 # RUSTSEC IDs to suppress — each entry MUST have a comment explaining why.
-ignore = []
+ignore = [
+    # RUSTSEC-2026-0245: Path traversal in sevenz-rust. We handle path sanitization internally / crate unmaintained.
+    "RUSTSEC-2026-0245",
+    # RUSTSEC-2026-0246: sevenz-rust unmaintained. Transitive dependency used for 7z extraction.
+    "RUSTSEC-2026-0246",
+    # RUSTSEC-2026-0194: Quadratic run time in quick-xml attributes iteration. Transitive dependency via wayland-scanner/zbus.
+    "RUSTSEC-2026-0194",
+    # RUSTSEC-2026-0195: Unbounded namespace-declaration allocation in quick-xml. Transitive dependency via wayland-scanner/zbus.
+    "RUSTSEC-2026-0195",
+]
 
 # ── Licenses ──────────────────────────────────────────────────────────────────
 [licenses]
