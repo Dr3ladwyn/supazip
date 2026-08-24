@@ -350,16 +350,11 @@ struct Accent {
 }
 
 #[derive(Debug, serde::Deserialize)]
-#[allow(dead_code)]
 struct Semantic {
-    #[serde(deserialize_with = "hex_color")]
-    success: Color32,
     #[serde(deserialize_with = "hex_color")]
     warning: Color32,
     #[serde(deserialize_with = "hex_color")]
     danger: Color32,
-    #[serde(deserialize_with = "hex_color")]
-    info: Color32,
 }
 
 #[derive(Debug, serde::Deserialize)]

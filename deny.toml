@@ -8,7 +8,14 @@
 unmaintained = "workspace"
 yanked = "warn"
 # RUSTSEC IDs to suppress — each entry MUST have a comment explaining why.
-ignore = []
+ignore = [
+    # RUSTSEC-2026-0245 / RUSTSEC-2026-0246: sevenz-rust is unmaintained and has a path traversal vulnerability. Upstream repo was deleted, no fix available.
+    "RUSTSEC-2026-0245",
+    "RUSTSEC-2026-0246",
+    # RUSTSEC-2026-0194 / RUSTSEC-2026-0195: quick-xml vulnerability in transitive dependencies (wayland-scanner/zbus_xml).
+    "RUSTSEC-2026-0194",
+    "RUSTSEC-2026-0195",
+]
 
 # ── Licenses ──────────────────────────────────────────────────────────────────
 [licenses]
