@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! SupaZip GUI — a PeaZip-style archive manager for 7z and ZIP.
 //!
 //! The binary entry point in `main.rs` runs the eframe event loop. This
