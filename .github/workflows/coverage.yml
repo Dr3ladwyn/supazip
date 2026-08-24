@@ -23,7 +23,7 @@ jobs:
       - name: Run coverage
         working-directory: supazip
         run: |
-          cargo llvm-cov --workspace --locked --ignore-rust-version --lcov --output-path lcov.info
+          cargo llvm-cov --workspace --locked --lcov --output-path lcov.info
       - name: Upload to Codecov
         uses: codecov/codecov-action@v4
         with:
