@@ -17,6 +17,5 @@ fuzz_target!(|data: &[u8]| {
         None => return, // registry not initialised; nothing to fuzz yet
     };
     let limits = supazip_core::Limits::default();
-    let cursor = std::io::Cursor::new(data);
-    let _ = backend.list(Box::new(cursor), None, &limits);
+    let _ = backend.list(Box::new(data), None, &limits);
 });
