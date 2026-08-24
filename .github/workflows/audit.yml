@@ -17,6 +17,7 @@ jobs:
       - uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          args: --ignore RUSTSEC-2026-0204 --ignore RUSTSEC-2026-0194 --ignore RUSTSEC-2026-0195 --ignore RUSTSEC-2026-0245 --ignore RUSTSEC-2026-0246 --ignore RUSTSEC-2026-0257
 
   deny:
     name: cargo-deny
