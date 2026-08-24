@@ -53,7 +53,7 @@ impl eframe::App for App {
         // actions the user triggered this frame (keyboard + clicks).
         let menu_actions = supazip_gui::menubar::show_menu_bar(ui.ctx(), &mut self.ctrl);
         for action in menu_actions {
-            self.dispatch_menu_action(action);
+            self.dispatch_menu_action(ui.ctx(), action);
         }
 
         // Visual hint: a full-window overlay while the cursor is
@@ -243,7 +243,7 @@ impl App {
     /// Dispatch a menu-bar action through the controller, then handle
     /// the GUI-side effects that the headless controller cannot perform
     /// (file pickers, viewport commands).
-    fn dispatch_menu_action(&mut self, action: supazip_gui::MenuAction) {
+    fn dispatch_menu_action(&mut self, ctx: &egui::Context, action: supazip_gui::MenuAction) {
         use supazip_gui::{MenuAction, MenuActionOutcome};
         match self.ctrl.dispatch_menu_action(action) {
             MenuActionOutcome::Done | MenuActionOutcome::Noop => {}
@@ -253,8 +253,7 @@ impl App {
                 MenuAction::Create => self.create_clicked(),
                 MenuAction::Test => self.test_clicked(),
                 MenuAction::Quit => {
-                    // TODO: eframe 0.34 quit — for now just request close.
-                    // ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 }
                 _ => {}
             },
