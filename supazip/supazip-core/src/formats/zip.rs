@@ -173,7 +173,7 @@ impl ArchiveFormat for ZipBackend {
             let logical_name = if is_brotli {
                 name.trim_end_matches(".br").to_string()
             } else {
-                name.clone()
+                name
             };
             let compression_method = if is_brotli {
                 "brotli".to_string()
@@ -266,7 +266,7 @@ impl ArchiveFormat for ZipBackend {
                 let logical_name = if is_brotli {
                     name.trim_end_matches(".br").to_string()
                 } else {
-                    name.clone()
+                    name
                 };
                 let enclosed = match file.enclosed_name() {
                     Some(path) => path.to_owned(),
@@ -307,7 +307,7 @@ impl ArchiveFormat for ZipBackend {
                     if processed.saturating_add(payload.len() as u64) > limits.max_entry_size {
                         return Err(ArchiverError::TooLarge(format!(
                             "entry '{}' exceeds max_entry_size {}",
-                            name, limits.max_entry_size
+                            logical_name, limits.max_entry_size
                         )));
                     }
                     let decoded = brotli_decompress_entry(&payload)?;
@@ -331,7 +331,7 @@ impl ArchiveFormat for ZipBackend {
                     if processed.saturating_add(bytes_read as u64) > limits.max_entry_size {
                         return Err(ArchiverError::TooLarge(format!(
                             "entry '{}' exceeds max_entry_size {}",
-                            name, limits.max_entry_size
+                            logical_name, limits.max_entry_size
                         )));
                     }
                     outfile
@@ -365,7 +365,7 @@ impl ArchiveFormat for ZipBackend {
                 let logical_name = if is_brotli {
                     name.trim_end_matches(".br").to_string()
                 } else {
-                    name.clone()
+                    name
                 };
                 let enclosed = match file.enclosed_name() {
                     Some(path) => path.to_owned(),

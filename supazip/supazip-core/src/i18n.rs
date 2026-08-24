@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Locale {
     En,
@@ -7,18 +5,22 @@ pub enum Locale {
     De,
 }
 
-impl Locale {
-    pub fn from_str(s: &str) -> Option<Self> {
+impl std::str::FromStr for Locale {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "en" => Some(Self::En),
-            "ru" => Some(Self::Ru),
-            "de" => Some(Self::De),
-            _ => None,
+            "en" => Ok(Self::En),
+            "ru" => Ok(Self::Ru),
+            "de" => Ok(Self::De),
+            _ => Err(()),
         }
     }
 }
 
-#[derive(Debug, Clone)]
+impl Locale {}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PluralForm {
     One,
     Few,

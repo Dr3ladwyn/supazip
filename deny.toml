@@ -8,7 +8,20 @@
 unmaintained = "workspace"
 yanked = "warn"
 # RUSTSEC IDs to suppress — each entry MUST have a comment explaining why.
-ignore = []
+ignore = [
+    # RUSTSEC-2026-0204: transitive dep via criterion
+    "RUSTSEC-2026-0204",
+    # RUSTSEC-2026-0194: transitive dep via wayland-scanner/zbus_xml
+    "RUSTSEC-2026-0194",
+    # RUSTSEC-2026-0195: transitive dep via wayland-scanner/zbus_xml
+    "RUSTSEC-2026-0195",
+    # RUSTSEC-2026-0245: sevenz-rust path traversal handled by SupaZip safe_join
+    "RUSTSEC-2026-0245",
+    # RUSTSEC-2026-0246: sevenz-rust unmaintained
+    "RUSTSEC-2026-0246",
+    # RUSTSEC-2026-0257: transitive dep via egui-winit/webbrowser
+    "RUSTSEC-2026-0257",
+]
 
 # ── Licenses ──────────────────────────────────────────────────────────────────
 [licenses]

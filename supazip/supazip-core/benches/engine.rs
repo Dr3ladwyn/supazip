@@ -29,7 +29,7 @@ use std::path::PathBuf;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use supazip_core::{
     formats::{SevenZBackend, TarBackend, TarGzBackend, TarXzBackend, ZipBackend},
-    ArchiveFormat, CreateOptions, Limits, NoOpProgress,
+    ArchiveFormat, CreateOptions, Limits, NoOpProgress, WriteSeek,
 };
 
 // ---------------------------------------------------------------------------
@@ -56,10 +56,13 @@ fn make_test_dir(n_entries: usize, entry_size: usize) -> (tempfile::TempDir, Vec
 /// raw bytes. Used by the list / extract / test benches which need a
 /// reader.
 fn build_archive_bytes(backend: &dyn ArchiveFormat, paths: &[PathBuf]) -> Vec<u8> {
-    let cur = Cursor::new(Vec::<u8>::new());
+    let temp = tempfile::NamedTempFile::new().expect("tempfile");
+    let path = temp.path().to_path_buf();
+    let file = std::fs::File::create(&path).expect("create temp file");
+    let writer: Box<dyn WriteSeek> = Box::new(file);
     backend
         .create(
-            Box::new(cur),
+            writer,
             paths,
             &CreateOptions::default(),
             None,
@@ -67,7 +70,7 @@ fn build_archive_bytes(backend: &dyn ArchiveFormat, paths: &[PathBuf]) -> Vec<u8
             &Limits::default(),
         )
         .expect("create fixture");
-    cur.into_inner()
+    std::fs::read(path).expect("read back temp file")
 }
 
 // ---------------------------------------------------------------------------
@@ -86,7 +89,8 @@ fn bench_create(c: &mut Criterion) {
     group.bench_function(BenchmarkId::new("zip", n), |b| {
         b.iter(|| {
             let backend = ZipBackend::new();
-            let cur = Cursor::new(Vec::<u8>::new());
+            let buf = Vec::<u8>::new();
+            let cur = Cursor::new(buf);
             backend
                 .create(
                     Box::new(cur),
@@ -103,7 +107,8 @@ fn bench_create(c: &mut Criterion) {
     group.bench_function(BenchmarkId::new("7z", n), |b| {
         b.iter(|| {
             let backend = SevenZBackend::new();
-            let cur = Cursor::new(Vec::<u8>::new());
+            let buf = Vec::<u8>::new();
+            let cur = Cursor::new(buf);
             backend
                 .create(
                     Box::new(cur),
@@ -120,7 +125,8 @@ fn bench_create(c: &mut Criterion) {
     group.bench_function(BenchmarkId::new("tar", n), |b| {
         b.iter(|| {
             let backend = TarBackend::new();
-            let cur = Cursor::new(Vec::<u8>::new());
+            let buf = Vec::<u8>::new();
+            let cur = Cursor::new(buf);
             backend
                 .create(
                     Box::new(cur),
@@ -137,7 +143,8 @@ fn bench_create(c: &mut Criterion) {
     group.bench_function(BenchmarkId::new("tar.gz", n), |b| {
         b.iter(|| {
             let backend = TarGzBackend::new();
-            let cur = Cursor::new(Vec::<u8>::new());
+            let buf = Vec::<u8>::new();
+            let cur = Cursor::new(buf);
             backend
                 .create(
                     Box::new(cur),
@@ -154,7 +161,8 @@ fn bench_create(c: &mut Criterion) {
     group.bench_function(BenchmarkId::new("tar.xz", n), |b| {
         b.iter(|| {
             let backend = TarXzBackend::new();
-            let cur = Cursor::new(Vec::<u8>::new());
+            let buf = Vec::<u8>::new();
+            let cur = Cursor::new(buf);
             backend
                 .create(
                     Box::new(cur),

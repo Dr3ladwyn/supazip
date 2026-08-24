@@ -705,11 +705,12 @@ mod tests {
         std::fs::write(&b, b"yy").expect("write b");
 
         let mut ctrl = AppController::default();
+        ctrl.state.recent.clear();
         assert!(ctrl.state().recent.is_empty());
 
         ctrl.apply(EngineEvent::Listed {
             path: a.clone(),
-            backend_name: "zip",
+            backend_name: "zip".into(),
             entries: vec![],
         });
         assert_eq!(ctrl.state().recent.len(), 1);
@@ -718,7 +719,7 @@ mod tests {
         // Re-opening the same path must dedup, not duplicate.
         ctrl.apply(EngineEvent::Listed {
             path: a.clone(),
-            backend_name: "zip",
+            backend_name: "zip".into(),
             entries: vec![],
         });
         assert_eq!(ctrl.state().recent.len(), 1);
@@ -775,6 +776,11 @@ mod tests {
     #[test]
     fn dispatch_extract_here_marks_busy_with_status() {
         let mut ctrl = AppController::default();
+        ctrl.state.open_archive = Some(OpenArchive {
+            path: PathBuf::from("test.zip"),
+            backend_name: "zip".into(),
+            entries: vec![],
+        });
         ctrl.dispatch_entry_action(EntryContextAction {
             entry_name: "hello.txt".into(),
             kind: EntryAction::ExtractHere(PathBuf::from("/tmp/out")),
@@ -788,6 +794,11 @@ mod tests {
     #[test]
     fn dispatch_extract_to_takes_same_path_as_extract_here() {
         let mut ctrl = AppController::default();
+        ctrl.state.open_archive = Some(OpenArchive {
+            path: PathBuf::from("test.zip"),
+            backend_name: "zip".into(),
+            entries: vec![],
+        });
         ctrl.dispatch_entry_action(EntryContextAction {
             entry_name: "data.bin".into(),
             kind: EntryAction::ExtractTo(PathBuf::from("/var/tmp")),
