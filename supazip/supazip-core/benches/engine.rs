@@ -69,7 +69,9 @@ fn build_archive_bytes(backend: &dyn ArchiveFormat, paths: &[PathBuf]) -> Vec<u8
             self.1 += b.len() as u64;
             Ok(b.len())
         }
-        fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
     }
     impl std::io::Seek for MemWriter {
         fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
@@ -81,7 +83,10 @@ fn build_archive_bytes(backend: &dyn ArchiveFormat, paths: &[PathBuf]) -> Vec<u8
                 std::io::SeekFrom::Current(p) => self.1 as i64 + p,
             };
             if n < 0 {
-                return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "negative seek"));
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "negative seek",
+                ));
             }
             self.1 = n as u64;
             Ok(self.1)
