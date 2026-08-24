@@ -47,6 +47,8 @@ pub enum MenuAction {
     ToggleDebug,
     /// File → Settings… (no accelerator)
     Settings,
+    /// Edit → Copy path
+    CopyPath,
 }
 
 impl MenuAction {
@@ -62,6 +64,7 @@ impl MenuAction {
         MenuAction::Quit,
         MenuAction::ToggleDebug,
         MenuAction::Settings,
+        MenuAction::CopyPath,
     ];
 }
 
@@ -123,14 +126,12 @@ pub fn show_menu_bar(ctx: &egui::Context, ctrl: &mut AppController) -> Vec<MenuA
                 }
             });
             ui.menu_button("Edit", |ui| {
-                // "Copy path" is owned by the right-click context menu
-                // (WS-B). The Edit menu keeps a placeholder so the menu
-                // bar shape is consistent across platforms; the click is
-                // a no-op for now and a TODO captures the integration.
+                let can_copy = ctrl.state().selected_entry.is_some();
                 if ui
-                    .add_enabled(false, egui::Button::new("Copy path (use context menu)"))
+                    .add_enabled(can_copy, egui::Button::new("Copy path"))
                     .clicked()
                 {
+                    actions.push(MenuAction::CopyPath);
                     ui.close_menu();
                 }
             });
@@ -178,7 +179,7 @@ mod tests {
         // Every variant must Debug-format with a distinct tag so a
         // snapshot test or a panic message is unambiguous.
         let tags: Vec<String> = MenuAction::ALL.iter().map(|a| format!("{a:?}")).collect();
-        assert_eq!(tags.len(), 9);
+        assert_eq!(tags.len(), 10);
         // No two variants share a Debug string.
         let mut sorted = tags.clone();
         sorted.sort();
@@ -196,13 +197,14 @@ mod tests {
         assert_eq!(format!("{:?}", MenuAction::Quit), "Quit");
         assert_eq!(format!("{:?}", MenuAction::ToggleDebug), "ToggleDebug");
         assert_eq!(format!("{:?}", MenuAction::Settings), "Settings");
+        assert_eq!(format!("{:?}", MenuAction::CopyPath), "CopyPath");
     }
 
     #[test]
-    fn menu_action_all_iterates_nine() {
+    fn menu_action_all_iterates_ten() {
         // Guard against accidentally dropping a variant from the
         // declaration list.
-        assert_eq!(MenuAction::ALL.len(), 9);
+        assert_eq!(MenuAction::ALL.len(), 10);
     }
 
     #[test]
@@ -273,6 +275,7 @@ mod tests {
             MenuAction::Create,
             MenuAction::Test,
             MenuAction::Quit,
+            MenuAction::CopyPath,
         ] {
             assert_eq!(
                 ctrl.dispatch_menu_action(action),

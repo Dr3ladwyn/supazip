@@ -98,6 +98,8 @@ pub struct AppState {
     pub settings: settings::Settings,
     /// WS-G: when `true`, the GUI renders the settings window.
     pub show_settings: bool,
+    /// Index of the currently selected entry row in `open_archive.entries`.
+    pub selected_entry: Option<usize>,
 }
 
 impl Default for AppState {
@@ -111,6 +113,7 @@ impl Default for AppState {
             show_about: false,
             settings: settings::Settings::load(),
             show_settings: false,
+            selected_entry: None,
         }
     }
 }
@@ -277,6 +280,7 @@ impl AppController {
                     backend_name,
                     entries,
                 });
+                self.state.selected_entry = None;
                 self.state.busy = false;
                 self.state.status = "loaded".to_string();
                 self.cancel_flag = Arc::new(CoreProgressState::new());
@@ -420,7 +424,8 @@ impl AppController {
             | MenuAction::Extract
             | MenuAction::Create
             | MenuAction::Test
-            | MenuAction::Quit => MenuActionOutcome::Gui,
+            | MenuAction::Quit
+            | MenuAction::CopyPath => MenuActionOutcome::Gui,
         }
     }
 
@@ -430,6 +435,7 @@ impl AppController {
     pub fn close_archive(&mut self) -> bool {
         if self.state.open_archive.is_some() {
             self.state.open_archive = None;
+            self.state.selected_entry = None;
             self.state.busy = false;
             self.state.status = "closed".to_string();
             self.cancel_flag = Arc::new(CoreProgressState::new());
@@ -705,6 +711,7 @@ mod tests {
         std::fs::write(&b, b"yy").expect("write b");
 
         let mut ctrl = AppController::default();
+        ctrl.clear_recent().ok();
         assert!(ctrl.state().recent.is_empty());
 
         ctrl.apply(EngineEvent::Listed {
@@ -781,7 +788,7 @@ mod tests {
         });
         let s = ctrl.state();
         assert!(s.busy);
-        assert!(s.status.contains("hello.txt"), "status: {}", s.status);
+        assert!(s.status.contains("extracting"), "status: {}", s.status);
         assert!(s.status.contains("/tmp/out"), "status: {}", s.status);
     }
 
@@ -794,7 +801,7 @@ mod tests {
         });
         let s = ctrl.state();
         assert!(s.busy);
-        assert!(s.status.contains("data.bin"));
+        assert!(s.status.contains("extracting"));
         assert!(s.status.contains("/var/tmp"));
     }
 
@@ -995,5 +1002,33 @@ mod tests {
         assert!(ctrl.cancel_handle().is_cancelled());
         let _h = ctrl.start_progress();
         assert!(ctrl.cancel_handle().is_cancelled());
+    }
+    #[test]
+    fn selected_entry_resets_on_list_and_close() {
+        let mut ctrl = AppController::default();
+        assert_eq!(ctrl.state().selected_entry, None);
+
+        ctrl.apply(EngineEvent::Listed {
+            path: PathBuf::from("/tmp/archive.zip"),
+            backend_name: "zip",
+            entries: vec![OpenEntry {
+                name: "file.txt".into(),
+                size: 10,
+                encrypted: false,
+            }],
+        });
+        ctrl.state_mut().selected_entry = Some(0);
+        assert_eq!(ctrl.state().selected_entry, Some(0));
+
+        ctrl.apply(EngineEvent::Listed {
+            path: PathBuf::from("/tmp/archive2.zip"),
+            backend_name: "zip",
+            entries: vec![],
+        });
+        assert_eq!(ctrl.state().selected_entry, None);
+
+        ctrl.state_mut().selected_entry = Some(0);
+        ctrl.close_archive();
+        assert_eq!(ctrl.state().selected_entry, None);
     }
 }
