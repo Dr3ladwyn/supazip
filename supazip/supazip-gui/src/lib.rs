@@ -300,12 +300,15 @@ impl AppController {
                 // intent in the status line so tests can assert on state
                 // without a window.
                 self.state.busy = true;
-                self.state.status = format!(
-                    "extracting {} entr{} to {}…",
-                    entries.len(),
-                    if entries.len() == 1 { "y" } else { "ies" },
-                    dest.display()
-                );
+                self.state.status = if entries.len() == 1 {
+                    format!("extracting {} to {}…", entries[0], dest.display())
+                } else {
+                    format!(
+                        "extracting {} entries to {}…",
+                        entries.len(),
+                        dest.display()
+                    )
+                };
             }
             EngineEvent::Done(msg) => {
                 self.state.busy = false;
@@ -705,6 +708,7 @@ mod tests {
         std::fs::write(&b, b"yy").expect("write b");
 
         let mut ctrl = AppController::default();
+        let _ = ctrl.clear_recent();
         assert!(ctrl.state().recent.is_empty());
 
         ctrl.apply(EngineEvent::Listed {
