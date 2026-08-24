@@ -24,7 +24,7 @@ jobs:
         working-directory: supazip
         run: |
           cargo llvm-cov --workspace --locked --lcov --output-path lcov.info -- \
-            --ignore-rust-version
+
       - name: Upload to Codecov
         uses: codecov/codecov-action@v4
         with:
