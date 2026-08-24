@@ -53,7 +53,7 @@ impl eframe::App for App {
         // actions the user triggered this frame (keyboard + clicks).
         let menu_actions = supazip_gui::menubar::show_menu_bar(ui.ctx(), &mut self.ctrl);
         for action in menu_actions {
-            self.dispatch_menu_action(action);
+            self.dispatch_menu_action(action, ui.ctx());
         }
 
         // Visual hint: a full-window overlay while the cursor is
@@ -177,12 +177,13 @@ impl eframe::App for App {
                             ui.end_row();
                             for (i, e) in oa.entries.iter().enumerate() {
                                 ui.monospace(i.to_string());
-                                let name_response = ui.add(
-                                    egui::Label::new(&e.name)
-                                        .selectable(false)
-                                        .sense(egui::Sense::click()),
-                                );
+                                let is_selected = self.ctrl.state().selected_entry == Some(i);
+                                let name_response = ui.selectable_label(is_selected, &e.name);
+                                if name_response.clicked() {
+                                    self.ctrl.state_mut().selected_entry = Some(i);
+                                }
                                 name_response.context_menu(|ui| {
+                                    self.ctrl.state_mut().selected_entry = Some(i);
                                     if let Some(action) =
                                         supazip_gui::context_menu::show_entry_context_menu(ui, e)
                                     {
@@ -243,7 +244,7 @@ impl App {
     /// Dispatch a menu-bar action through the controller, then handle
     /// the GUI-side effects that the headless controller cannot perform
     /// (file pickers, viewport commands).
-    fn dispatch_menu_action(&mut self, action: supazip_gui::MenuAction) {
+    fn dispatch_menu_action(&mut self, action: supazip_gui::MenuAction, ctx: &egui::Context) {
         use supazip_gui::{MenuAction, MenuActionOutcome};
         match self.ctrl.dispatch_menu_action(action) {
             MenuActionOutcome::Done | MenuActionOutcome::Noop => {}
@@ -252,6 +253,19 @@ impl App {
                 MenuAction::Extract => self.extract_clicked(),
                 MenuAction::Create => self.create_clicked(),
                 MenuAction::Test => self.test_clicked(),
+                MenuAction::CopyPath => {
+                    if let Some(oa) = self.ctrl.state().open_archive.clone() {
+                        if let Some(idx) = self.ctrl.state().selected_entry {
+                            if let Some(entry) = oa.entries.get(idx) {
+                                ctx.copy_text(entry.name.clone());
+                                self.dispatch_entry_action(EntryContextAction {
+                                    entry_name: entry.name.clone(),
+                                    kind: EntryAction::CopyPath,
+                                });
+                            }
+                        }
+                    }
+                }
                 MenuAction::Quit => {
                     // TODO: eframe 0.34 quit — for now just request close.
                     // ctx.send_viewport_cmd(egui::ViewportCommand::Close);

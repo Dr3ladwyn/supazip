@@ -47,6 +47,8 @@ pub enum MenuAction {
     ToggleDebug,
     /// File → Settings… (no accelerator)
     Settings,
+    /// Edit → Copy path
+    CopyPath,
 }
 
 impl MenuAction {
@@ -62,6 +64,7 @@ impl MenuAction {
         MenuAction::Quit,
         MenuAction::ToggleDebug,
         MenuAction::Settings,
+        MenuAction::CopyPath,
     ];
 }
 
@@ -84,54 +87,53 @@ pub enum MenuActionOutcome {
 /// frame, including keyboard accelerators. Pure with respect to the
 /// controller: `ctrl.show_debug` is flipped in place through the View
 /// menu checkbox, everything else is reported through the return value.
+#[allow(deprecated)]
 pub fn show_menu_bar(ctx: &egui::Context, ctrl: &mut AppController) -> Vec<MenuAction> {
     let mut actions = Vec::new();
 
-    egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
-        egui::menu::bar(ui, |ui| {
+    egui::Panel::top("menu_bar").show(ctx, |ui| {
+        egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| {
                 if ui.button("Open\u{2026}    Ctrl+O").clicked() {
                     actions.push(MenuAction::Open);
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
                 if ui.button("Close    Ctrl+W").clicked() {
                     actions.push(MenuAction::Close);
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
                 ui.separator();
                 if ui.button("Extract\u{2026}    Ctrl+E").clicked() {
                     actions.push(MenuAction::Extract);
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
                 if ui.button("Create\u{2026}").clicked() {
                     actions.push(MenuAction::Create);
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
                 if ui.button("Test integrity").clicked() {
                     actions.push(MenuAction::Test);
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
                 ui.separator();
                 if ui.button("Settings\u{2026}").clicked() {
                     actions.push(MenuAction::Settings);
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
                 ui.separator();
                 if ui.button("Quit    Ctrl+Q").clicked() {
                     actions.push(MenuAction::Quit);
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
             });
             ui.menu_button("Edit", |ui| {
-                // "Copy path" is owned by the right-click context menu
-                // (WS-B). The Edit menu keeps a placeholder so the menu
-                // bar shape is consistent across platforms; the click is
-                // a no-op for now and a TODO captures the integration.
+                let can_copy = ctrl.state().selected_entry.is_some();
                 if ui
-                    .add_enabled(false, egui::Button::new("Copy path (use context menu)"))
+                    .add_enabled(can_copy, egui::Button::new("Copy path"))
                     .clicked()
                 {
-                    ui.close_menu();
+                    actions.push(MenuAction::CopyPath);
+                    ui.close_kind(egui::UiKind::Menu);
                 }
             });
             ui.menu_button("View", |ui| {
@@ -140,7 +142,7 @@ pub fn show_menu_bar(ctx: &egui::Context, ctrl: &mut AppController) -> Vec<MenuA
             ui.menu_button("Help", |ui| {
                 if ui.button("About    F1").clicked() {
                     actions.push(MenuAction::About);
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
             });
         });
@@ -178,7 +180,7 @@ mod tests {
         // Every variant must Debug-format with a distinct tag so a
         // snapshot test or a panic message is unambiguous.
         let tags: Vec<String> = MenuAction::ALL.iter().map(|a| format!("{a:?}")).collect();
-        assert_eq!(tags.len(), 9);
+        assert_eq!(tags.len(), 10);
         // No two variants share a Debug string.
         let mut sorted = tags.clone();
         sorted.sort();
@@ -196,13 +198,14 @@ mod tests {
         assert_eq!(format!("{:?}", MenuAction::Quit), "Quit");
         assert_eq!(format!("{:?}", MenuAction::ToggleDebug), "ToggleDebug");
         assert_eq!(format!("{:?}", MenuAction::Settings), "Settings");
+        assert_eq!(format!("{:?}", MenuAction::CopyPath), "CopyPath");
     }
 
     #[test]
-    fn menu_action_all_iterates_nine() {
+    fn menu_action_all_iterates_ten() {
         // Guard against accidentally dropping a variant from the
         // declaration list.
-        assert_eq!(MenuAction::ALL.len(), 9);
+        assert_eq!(MenuAction::ALL.len(), 10);
     }
 
     #[test]
@@ -273,6 +276,7 @@ mod tests {
             MenuAction::Create,
             MenuAction::Test,
             MenuAction::Quit,
+            MenuAction::CopyPath,
         ] {
             assert_eq!(
                 ctrl.dispatch_menu_action(action),
