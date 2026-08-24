@@ -85,8 +85,9 @@ pub fn hovered_flag_from_hovered(hovered: &[egui::HoveredFile]) -> bool {
 /// frame. Called by the view layer when the hover flag is set. The
 /// overlay covers the whole screen rectangle at `Order::Foreground`
 /// so it sits above all panels.
+#[allow(deprecated)]
 pub fn render_drop_overlay(ctx: &egui::Context) {
-    let screen = ctx.screen_rect();
+    let screen = ctx.content_rect();
     egui::Area::new(egui::Id::new("dnd_overlay"))
         .order(egui::Order::Foreground)
         .fixed_pos(screen.min)

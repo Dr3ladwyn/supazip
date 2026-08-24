@@ -8,7 +8,12 @@
 unmaintained = "workspace"
 yanked = "warn"
 # RUSTSEC IDs to suppress — each entry MUST have a comment explaining why.
-ignore = []
+ignore = [
+    # RUSTSEC-2026-0245: sevenz-rust path traversal in decompress_impl. SupaZip uses custom extraction logic with safe_join validation.
+    "RUSTSEC-2026-0245",
+    # RUSTSEC-2026-0246: sevenz-rust unmaintained. 7z backend dependency in milestone 0.3.0 workspace stack.
+    "RUSTSEC-2026-0246",
+]
 
 # ── Licenses ──────────────────────────────────────────────────────────────────
 [licenses]

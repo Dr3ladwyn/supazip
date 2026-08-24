@@ -72,7 +72,7 @@ pub fn show_entry_context_menu(ui: &mut egui::Ui, entry: &OpenEntry) -> Option<E
                 kind: EntryAction::ExtractHere(dir),
             });
         }
-        ui.close_menu();
+        ui.close_kind(egui::UiKind::Menu);
     }
     if ui.button("Extract to\u{2026}").clicked() {
         if let Some(dir) = rfd::FileDialog::new().pick_folder() {
@@ -81,14 +81,14 @@ pub fn show_entry_context_menu(ui: &mut egui::Ui, entry: &OpenEntry) -> Option<E
                 kind: EntryAction::ExtractTo(dir),
             });
         }
-        ui.close_menu();
+        ui.close_kind(egui::UiKind::Menu);
     }
     if ui.button("Test entry").clicked() {
         action = Some(EntryContextAction {
             entry_name: entry.name.clone(),
             kind: EntryAction::TestEntry,
         });
-        ui.close_menu();
+        ui.close_kind(egui::UiKind::Menu);
     }
     ui.separator();
     if ui.button("Copy path").clicked() {
@@ -97,7 +97,7 @@ pub fn show_entry_context_menu(ui: &mut egui::Ui, entry: &OpenEntry) -> Option<E
             entry_name: entry.name.clone(),
             kind: EntryAction::CopyPath,
         });
-        ui.close_menu();
+        ui.close_kind(egui::UiKind::Menu);
     }
 
     action

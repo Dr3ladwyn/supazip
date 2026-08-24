@@ -87,42 +87,43 @@ pub enum MenuActionOutcome {
 /// frame, including keyboard accelerators. Pure with respect to the
 /// controller: `ctrl.show_debug` is flipped in place through the View
 /// menu checkbox, everything else is reported through the return value.
+#[allow(deprecated)]
 pub fn show_menu_bar(ctx: &egui::Context, ctrl: &mut AppController) -> Vec<MenuAction> {
     let mut actions = Vec::new();
 
-    egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
-        egui::menu::bar(ui, |ui| {
+    egui::Panel::top("menu_bar").show(ctx, |ui| {
+        egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| {
                 if ui.button("Open\u{2026}    Ctrl+O").clicked() {
                     actions.push(MenuAction::Open);
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
                 if ui.button("Close    Ctrl+W").clicked() {
                     actions.push(MenuAction::Close);
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
                 ui.separator();
                 if ui.button("Extract\u{2026}    Ctrl+E").clicked() {
                     actions.push(MenuAction::Extract);
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
                 if ui.button("Create\u{2026}").clicked() {
                     actions.push(MenuAction::Create);
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
                 if ui.button("Test integrity").clicked() {
                     actions.push(MenuAction::Test);
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
                 ui.separator();
                 if ui.button("Settings\u{2026}").clicked() {
                     actions.push(MenuAction::Settings);
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
                 ui.separator();
                 if ui.button("Quit    Ctrl+Q").clicked() {
                     actions.push(MenuAction::Quit);
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
             });
             ui.menu_button("Edit", |ui| {
@@ -132,7 +133,7 @@ pub fn show_menu_bar(ctx: &egui::Context, ctrl: &mut AppController) -> Vec<MenuA
                     .clicked()
                 {
                     actions.push(MenuAction::CopyPath);
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
             });
             ui.menu_button("View", |ui| {
@@ -141,7 +142,7 @@ pub fn show_menu_bar(ctx: &egui::Context, ctrl: &mut AppController) -> Vec<MenuA
             ui.menu_button("Help", |ui| {
                 if ui.button("About    F1").clicked() {
                     actions.push(MenuAction::About);
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
             });
         });

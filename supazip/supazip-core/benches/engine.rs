@@ -56,10 +56,40 @@ fn make_test_dir(n_entries: usize, entry_size: usize) -> (tempfile::TempDir, Vec
 /// raw bytes. Used by the list / extract / test benches which need a
 /// reader.
 fn build_archive_bytes(backend: &dyn ArchiveFormat, paths: &[PathBuf]) -> Vec<u8> {
-    let cur = Cursor::new(Vec::<u8>::new());
+    let buf = std::sync::Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
+    struct MemWriter(std::sync::Arc<std::sync::Mutex<Vec<u8>>>, u64);
+    impl std::io::Write for MemWriter {
+        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+            let mut v = self.0.lock().unwrap();
+            let pos = self.1 as usize;
+            if pos + b.len() > v.len() {
+                v.resize(pos + b.len(), 0);
+            }
+            v[pos..pos + b.len()].copy_from_slice(b);
+            self.1 += b.len() as u64;
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
+    }
+    impl std::io::Seek for MemWriter {
+        fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
+            let v = self.0.lock().unwrap();
+            let len = v.len() as i64;
+            let n = match pos {
+                std::io::SeekFrom::Start(p) => p as i64,
+                std::io::SeekFrom::End(p) => len + p,
+                std::io::SeekFrom::Current(p) => self.1 as i64 + p,
+            };
+            if n < 0 {
+                return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "negative seek"));
+            }
+            self.1 = n as u64;
+            Ok(self.1)
+        }
+    }
     backend
         .create(
-            Box::new(cur),
+            Box::new(MemWriter(buf.clone(), 0)),
             paths,
             &CreateOptions::default(),
             None,
@@ -67,7 +97,8 @@ fn build_archive_bytes(backend: &dyn ArchiveFormat, paths: &[PathBuf]) -> Vec<u8
             &Limits::default(),
         )
         .expect("create fixture");
-    cur.into_inner()
+    let res = buf.lock().unwrap().clone();
+    res
 }
 
 // ---------------------------------------------------------------------------
