@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Locale {
     En,
@@ -18,7 +16,7 @@ impl Locale {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PluralForm {
     One,
     Few,
@@ -117,6 +115,27 @@ impl I18nStrings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── Locale::from_str ──
+
+    #[test]
+    fn locale_from_str_valid_branches() {
+        assert_eq!(Locale::from_str("en"), Some(Locale::En));
+        assert_eq!(Locale::from_str("ru"), Some(Locale::Ru));
+        assert_eq!(Locale::from_str("de"), Some(Locale::De));
+    }
+
+    #[test]
+    fn locale_from_str_invalid_branches() {
+        assert_eq!(Locale::from_str(""), None);
+        assert_eq!(Locale::from_str("fr"), None);
+        assert_eq!(Locale::from_str("es"), None);
+        assert_eq!(Locale::from_str("EN"), None);
+        assert_eq!(Locale::from_str("RU"), None);
+        assert_eq!(Locale::from_str("DE"), None);
+        assert_eq!(Locale::from_str(" en "), None);
+        assert_eq!(Locale::from_str("english"), None);
+    }
 
     // ── plural_form: English ──
 
