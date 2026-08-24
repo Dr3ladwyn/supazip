@@ -523,4 +523,39 @@ mod tests {
         l.max_compression_ratio = 0;
         assert_eq!(l.max_compression_ratio, 0);
     }
+
+    #[test]
+    fn compression_method_from_legacy_str() {
+        // Deflate aliases & case insensitivity
+        assert_eq!(CompressionMethod::from_legacy_str("deflate"), CompressionMethod::Deflate);
+        assert_eq!(CompressionMethod::from_legacy_str("deflated"), CompressionMethod::Deflate);
+        assert_eq!(CompressionMethod::from_legacy_str("DEFLATE"), CompressionMethod::Deflate);
+        assert_eq!(CompressionMethod::from_legacy_str("Deflated"), CompressionMethod::Deflate);
+
+        // Store aliases & case insensitivity
+        assert_eq!(CompressionMethod::from_legacy_str("store"), CompressionMethod::Store);
+        assert_eq!(CompressionMethod::from_legacy_str("none"), CompressionMethod::Store);
+        assert_eq!(CompressionMethod::from_legacy_str("stored"), CompressionMethod::Store);
+        assert_eq!(CompressionMethod::from_legacy_str("STORE"), CompressionMethod::Store);
+        assert_eq!(CompressionMethod::from_legacy_str("NONE"), CompressionMethod::Store);
+        assert_eq!(CompressionMethod::from_legacy_str("Stored"), CompressionMethod::Store);
+
+        // Brotli aliases & case insensitivity
+        assert_eq!(CompressionMethod::from_legacy_str("brotli"), CompressionMethod::Brotli);
+        assert_eq!(CompressionMethod::from_legacy_str("br"), CompressionMethod::Brotli);
+        assert_eq!(CompressionMethod::from_legacy_str("BROTLI"), CompressionMethod::Brotli);
+        assert_eq!(CompressionMethod::from_legacy_str("Br"), CompressionMethod::Brotli);
+
+        // Zstd aliases & case insensitivity
+        assert_eq!(CompressionMethod::from_legacy_str("zstd"), CompressionMethod::Zstd);
+        assert_eq!(CompressionMethod::from_legacy_str("zstandard"), CompressionMethod::Zstd);
+        assert_eq!(CompressionMethod::from_legacy_str("ZSTD"), CompressionMethod::Zstd);
+        assert_eq!(CompressionMethod::from_legacy_str("ZStandard"), CompressionMethod::Zstd);
+
+        // Fallbacks for unknown or unsupported inputs
+        assert_eq!(CompressionMethod::from_legacy_str("bzip2"), CompressionMethod::Deflate);
+        assert_eq!(CompressionMethod::from_legacy_str("lzma"), CompressionMethod::Deflate);
+        assert_eq!(CompressionMethod::from_legacy_str("unknown"), CompressionMethod::Deflate);
+        assert_eq!(CompressionMethod::from_legacy_str(""), CompressionMethod::Deflate);
+    }
 }
