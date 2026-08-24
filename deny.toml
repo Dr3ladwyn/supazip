@@ -20,6 +20,14 @@ ignore = [
     # RUSTSEC-2026-0195: Unbounded namespace-declaration allocation in NsReader in quick-xml.
     # Transitive dependency via egui/eframe wayland stack.
     "RUSTSEC-2026-0195",
+    # RUSTSEC-2026-0192: ttf-parser is unmaintained. Transitive dependency via egui font stack.
+    "RUSTSEC-2026-0192",
+    # RUSTSEC-2026-0190: Unsoundness in Error::downcast_mut() in anyhow. Transitive dependency.
+    "RUSTSEC-2026-0190",
+    # RUSTSEC-2026-0221: event-listener unsoundness. Transitive dependency via egui stack.
+    "RUSTSEC-2026-0221",
+    # RUSTSEC-2026-0186: memmap2 unchecked pointer offset. Transitive dependency.
+    "RUSTSEC-2026-0186",
 ]
 
 # ── Licenses ──────────────────────────────────────────────────────────────────
