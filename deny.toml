@@ -8,7 +8,18 @@
 unmaintained = "workspace"
 yanked = "warn"
 # RUSTSEC IDs to suppress — each entry MUST have a comment explaining why.
-ignore = []
+ignore = [
+    # quick-xml quadratic run time attribute check advisory
+    "RUSTSEC-2026-0194",
+    # quick-xml unbounded namespace declaration allocation
+    "RUSTSEC-2026-0195",
+    # sevenz-rust path traversal flaw in abandoned crate
+    "RUSTSEC-2026-0245",
+    # sevenz-rust unmaintained crate advisory
+    "RUSTSEC-2026-0246",
+    # webbrowser argument injection flaw
+    "RUSTSEC-2026-0257",
+]
 
 # ── Licenses ──────────────────────────────────────────────────────────────────
 [licenses]
