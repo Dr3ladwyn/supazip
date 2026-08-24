@@ -14,6 +14,7 @@
 //! Tests construct an `AppController`, drive it through a public action
 //! (e.g. `list_archive`), then poll the channel for the resulting event.
 
+#[allow(deprecated)]
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;

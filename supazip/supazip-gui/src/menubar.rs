@@ -21,6 +21,7 @@
 //! [`MenuAction::About`]. The remaining actions are returned to the
 //! caller through [`MenuActionOutcome::Gui`].
 
+#[allow(deprecated)]
 use crate::AppController;
 use eframe::egui;
 
@@ -84,6 +85,7 @@ pub enum MenuActionOutcome {
 /// frame, including keyboard accelerators. Pure with respect to the
 /// controller: `ctrl.show_debug` is flipped in place through the View
 /// menu checkbox, everything else is reported through the return value.
+#[allow(deprecated)]
 pub fn show_menu_bar(ctx: &egui::Context, ctrl: &mut AppController) -> Vec<MenuAction> {
     let mut actions = Vec::new();
 
@@ -174,6 +176,7 @@ mod tests {
     use crate::EngineEvent;
 
     #[test]
+    #[allow(deprecated)]
     fn menu_action_variants() {
         // Every variant must Debug-format with a distinct tag so a
         // snapshot test or a panic message is unambiguous.
@@ -199,6 +202,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn menu_action_all_iterates_nine() {
         // Guard against accidentally dropping a variant from the
         // declaration list.
@@ -206,6 +210,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn menu_action_outcome_distinct_variants() {
         // The outcome enum is the only channel between the headless
         // controller and the GUI front-end. Its variants must stay
@@ -216,6 +221,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn app_controller_dispatch_menu_action_toggle_debug_flips_field() {
         let mut ctrl = AppController::default();
         assert!(!ctrl.state().show_debug, "default is off");
@@ -229,6 +235,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn app_controller_dispatch_menu_action_about_opens_modal() {
         let mut ctrl = AppController::default();
         assert!(!ctrl.state().show_about);
@@ -238,6 +245,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn app_controller_dispatch_menu_action_close_drops_open_archive() {
         let mut ctrl = AppController::default();
         // Simulate a loaded archive.
@@ -254,6 +262,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn app_controller_dispatch_menu_action_close_with_no_archive_is_noop() {
         let mut ctrl = AppController::default();
         assert!(ctrl.state().open_archive.is_none());
@@ -262,6 +271,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn app_controller_dispatch_menu_action_open_extract_create_test_quit_are_gui() {
         // All five actions need a live window: file pickers or
         // ViewportCommand::Close. The controller must report them as
