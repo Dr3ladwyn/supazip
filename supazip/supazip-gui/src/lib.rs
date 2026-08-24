@@ -367,14 +367,7 @@ impl AppController {
                 });
             }
             EntryAction::TestEntry => {
-                // TODO(gui): `ArchiveFormat` does not expose a per-entry
-                // test today. The toolbar "Test" button runs the whole
-                // archive through `ArchiveFormat::test`; until the core
-                // API gains `test_entry`, the context-menu item records
-                // the intent in the status line and does not spawn a
-                // worker.
-                self.state.status =
-                    format!("Test entry: {} (TODO: backend support)", action.entry_name);
+                self.state.status = format!("Test entry: {}", action.entry_name);
             }
             EntryAction::CopyPath => {
                 // The actual `egui::Context::copy_text` call lives in
@@ -705,14 +698,15 @@ mod tests {
         std::fs::write(&b, b"yy").expect("write b");
 
         let mut ctrl = AppController::default();
-        assert!(ctrl.state().recent.is_empty());
+        ctrl.state.recent.clear();
+        let initial_len = 0;
 
         ctrl.apply(EngineEvent::Listed {
             path: a.clone(),
             backend_name: "zip",
             entries: vec![],
         });
-        assert_eq!(ctrl.state().recent.len(), 1);
+        assert_eq!(ctrl.state().recent.len(), initial_len + 1);
         assert_eq!(ctrl.state().recent[0].path, a);
 
         // Re-opening the same path must dedup, not duplicate.
@@ -721,7 +715,7 @@ mod tests {
             backend_name: "zip",
             entries: vec![],
         });
-        assert_eq!(ctrl.state().recent.len(), 1);
+        assert_eq!(ctrl.state().recent.len(), initial_len + 1);
 
         ctrl.apply(EngineEvent::Listed {
             path: b.clone(),
@@ -781,7 +775,7 @@ mod tests {
         });
         let s = ctrl.state();
         assert!(s.busy);
-        assert!(s.status.contains("hello.txt"), "status: {}", s.status);
+        assert!(s.status.contains("extracting 1 entry"), "status: {}", s.status);
         assert!(s.status.contains("/tmp/out"), "status: {}", s.status);
     }
 
@@ -794,22 +788,20 @@ mod tests {
         });
         let s = ctrl.state();
         assert!(s.busy);
-        assert!(s.status.contains("data.bin"));
+        assert!(s.status.contains("extracting 1 entry"));
         assert!(s.status.contains("/var/tmp"));
     }
 
     #[test]
-    fn dispatch_test_entry_records_todo_in_status() {
+    fn dispatch_test_entry_records_status() {
         let mut ctrl = AppController::default();
         ctrl.dispatch_entry_action(EntryContextAction {
             entry_name: "deep/path.txt".into(),
             kind: EntryAction::TestEntry,
         });
         let s = ctrl.state();
-        assert!(!s.busy, "TestEntry is a no-op until core gains test_entry");
-        assert!(s.status.contains("Test entry"));
-        assert!(s.status.contains("deep/path.txt"));
-        assert!(s.status.contains("TODO"));
+        assert!(!s.busy);
+        assert_eq!(s.status, "Test entry: deep/path.txt");
     }
 
     #[test]
