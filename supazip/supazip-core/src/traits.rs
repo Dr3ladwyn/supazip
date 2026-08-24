@@ -519,8 +519,10 @@ mod tests {
         // Documenting test (no runtime enforcement here — that lives in the
         // 7z backend's extract loop). Setting the ratio to 0 is the documented
         // way to disable the check.
-        let mut l = Limits::default();
-        l.max_compression_ratio = 0;
+        let l = Limits {
+            max_compression_ratio: 0,
+            ..Default::default()
+        };
         assert_eq!(l.max_compression_ratio, 0);
     }
 }

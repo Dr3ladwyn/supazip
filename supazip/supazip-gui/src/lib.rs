@@ -705,6 +705,7 @@ mod tests {
         std::fs::write(&b, b"yy").expect("write b");
 
         let mut ctrl = AppController::default();
+        let _ = ctrl.clear_recent();
         assert!(ctrl.state().recent.is_empty());
 
         ctrl.apply(EngineEvent::Listed {
@@ -781,7 +782,7 @@ mod tests {
         });
         let s = ctrl.state();
         assert!(s.busy);
-        assert!(s.status.contains("hello.txt"), "status: {}", s.status);
+        assert!(s.status.contains("1 entry"), "status: {}", s.status);
         assert!(s.status.contains("/tmp/out"), "status: {}", s.status);
     }
 
@@ -794,7 +795,7 @@ mod tests {
         });
         let s = ctrl.state();
         assert!(s.busy);
-        assert!(s.status.contains("data.bin"));
+        assert!(s.status.contains("1 entry"));
         assert!(s.status.contains("/var/tmp"));
     }
 

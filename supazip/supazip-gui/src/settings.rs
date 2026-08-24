@@ -117,12 +117,13 @@ mod tests {
         // Override the config path for this test by writing and reading
         // manually (Settings::config_path is not injectable, so we test
         // the serialization logic directly).
-        let mut s = Settings::default();
-        s.language = Some("ru".into());
-        s.max_archive_size = 512 * 1024 * 1024;
-        s.recent_files_limit = 5;
-        s.show_debug_overlay = true;
-        s.theme = ThemePreference::Light;
+        let s = Settings {
+            language: Some("ru".into()),
+            max_archive_size: 512 * 1024 * 1024,
+            recent_files_limit: 5,
+            show_debug_overlay: true,
+            theme: ThemePreference::Light,
+        };
 
         let json = serde_json::to_string_pretty(&s).expect("serialize");
         let path = dir.path().join("settings.json");

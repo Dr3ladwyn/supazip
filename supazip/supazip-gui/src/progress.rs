@@ -162,9 +162,9 @@ impl ProgressCallback for GuiProgress {
     }
 }
 
-/// `impl ProgressCallback for Arc<ProgressState>` is not allowed (orphan
-/// rules: `Arc` is foreign). Workers should wrap the `Arc` in
-/// [`GuiProgress`].
+// `impl ProgressCallback for Arc<ProgressState>` is not allowed (orphan
+// rules: `Arc` is foreign). Workers should wrap the `Arc` in
+// `GuiProgress`.
 
 // ---------------------------------------------------------------------------
 // ChannelProgress -> Arc<ProgressState> bridge.
