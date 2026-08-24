@@ -20,7 +20,7 @@ fuzz_target!(|data: &[u8]| {
     };
     let limits = Limits::default();
     let _ = backend.extract(
-        Box::new(data),
+        Box::new(std::io::Cursor::new(data.to_vec())),
         tmp.path(),
         &[],
         None,
